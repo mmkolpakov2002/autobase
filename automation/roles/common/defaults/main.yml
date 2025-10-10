@@ -29,6 +29,12 @@ synchronous_mode: false # or 'true' for enable synchronous database replication
 synchronous_mode_strict: false # if 'true' then block all client writes to the master, when a synchronous replica is not available
 synchronous_node_count: 1 # number of synchronous standby databases
 
+# mmkolpakov changes
+# Clean DCS on new cluster bootstrap to prevent conflicts with old data
+deploy_clean_dcs_on_bootstrap: true
+# Automatically generate pg_hba.conf rules. If false, only rules from postgresql_pg_hba variable will be used.
+patroni_auto_generate_pg_hba: true
+
 # Load Balancing
 with_haproxy_load_balancing: false # or 'true' if you want to install and configure the HAProxy load balancers
 haproxy_listen_port:
@@ -130,7 +136,15 @@ etcd_tls_ca_crt: "ca.crt"
 etcd_tls_ca_key: "ca.key"
 etcd_tls_server_crt: "server.crt"
 etcd_tls_server_key: "server.key"
-etcd_client_cert_auth: "{{ 'true' if not etcd_on_dedicated_nodes | bool else 'false' }}"
+# mmkolpakov changes
+# Allows to force enable/disable authentication using client certificates.
+# Possible values: true, false, null. If null, automatic logic is used.
+etcd_force_client_cert_auth: null
+# 1. If etcd_force_client_cert_auth is explicitly set (true/false), its value is used.
+# 2. If it is not set (null), the secure default logic is used:
+# - 'true' if etcd and Patroni are on the same nodes (not a dedicated cluster).
+# - 'false' if etcd is on dedicated nodes (simplifies management).
+etcd_client_cert_auth: "{{ etcd_force_client_cert_auth if etcd_force_client_cert_auth is not none else (not etcd_on_dedicated_nodes | bool) }}"
 # We disable client certificate authentication when etcd runs on dedicated nodes.
 # This allows Patroni to connect without requiring a client certificate, ensuring secure encrypted communication
 # using only the CA certificate while avoiding the need to regenerate etcd certificates when adding new Patroni clusters.
@@ -439,8 +453,9 @@ postgresql_pg_hba:
   - { type: "local", database: "all", user: "{{ patroni_superuser_username }}", address: "", method: "trust" }
   - { type: "local", database: "all", user: "{{ pgbouncer_auth_username }}", address: "", method: "trust" } # required for pgbouncer auth_user
   - { type: "local", database: "all", user: "all", address: "", method: "{{ postgresql_password_encryption_algorithm }}" }
-  - { type: "host", database: "all", user: "all", address: "127.0.0.1/32", method: "{{ postgresql_password_encryption_algorithm }}" }
-  - { type: "host", database: "all", user: "all", address: "::1/128", method: "{{ postgresql_password_encryption_algorithm }}" }
+  # mmkolpakov changes
+  - { type: "{{ host_type }}", database: "all", user: "all", address: "127.0.0.1/32", method: "{{ postgresql_password_encryption_algorithm }}" }
+  - { type: "{{ host_type }}", database: "all", user: "all", address: "::1/128", method: "{{ postgresql_password_encryption_algorithm }}" }
   - { type: "{{ host_type }}", database: "all", user: "all", address: "0.0.0.0/0", method: "{{ postgresql_password_encryption_algorithm }}" }
 #  - { type: "{{ host_type }}", database: "mydatabase", user: "mydb-user", address: "192.168.0.0/24", method: "{{ postgresql_password_encryption_algorithm }}" }
 #  - { type: "{{ host_type }}", database: "all", user: "all", address: "192.168.0.0/24", method: "ident", options: "map=main" }  # use pg_ident
@@ -511,7 +526,6 @@ patroni_restapi_protocol: "{{ 'https' if tls_cert_generate | bool else 'http' }}
 patroni_restapi_certfile: "{{ tls_dir ~ '/' ~ tls_cert if patroni_restapi_protocol == 'https' else omit }}"
 patroni_restapi_keyfile: "{{ tls_dir ~ '/' ~ tls_privatekey if patroni_restapi_protocol == 'https' else omit }}"
 patroni_restapi_cafile: "{{ tls_dir ~ '/' ~ tls_ca_cert if patroni_restapi_protocol == 'https' else omit }}"
-# patroni_restapi_connect_addr: "{{ ansible_hostname }}" # or 'ansible_fqdn'. Set if you need connection to be established by domain name, not IP.
 patroni_restapi_listen_addr: "0.0.0.0" # Listen on all interfaces. Or use "{{ bind_address }}" to listen on a specific IP address.
 patroni_restapi_port: 8008
 patroni_restapi_username: "patroni"
@@ -523,9 +537,16 @@ patroni_retry_timeout: 10
 patroni_master_start_timeout: 300
 patroni_maximum_lag_on_failover: 1048576 # (1MB) the maximum bytes a follower may lag to be able to participate in leader election.
 patroni_maximum_lag_on_replica: "100MB" # the maximum of lag that replica can be in order to be available for read-only queries.
-
+# mmkolpakov changes
+patroni_restapi_verify_client_cert: false
 patroni_use_unix_socket: true # specifies that Patroni should prefer to use unix sockets to connect to the cluster.
 patroni_use_unix_socket_repl: true # specifies that Patroni should prefer to use unix sockets for replication user cluster connection.
+# mmkolpakov changes
+patroni_restapi_connect_addr: "{{ patroni_bind_address | default(bind_address, true) }}"
+# Automatically generate pg_hba.conf rules for replication and client connections between cluster nodes
+patroni_auto_generate_hba_rules: true
+patroni_auto_create_cluster: false
+patroni_etcd_use_client_cert: "{{ etcd_client_cert_auth | default(false) | bool }}"
 
 # https://patroni.readthedocs.io/en/latest/yaml_configuration.html#postgresql
 patroni_callbacks: []
@@ -844,6 +865,10 @@ nameservers:
 etc_hosts: []
 #  - "10.128.64.143 pgbackrest.minio.local minio.local s3.eu-west-3.amazonaws.com"  # example (MinIO)
 #  - ""
+
+# mmkolpakov changes
+# Automatically generate /etc/hosts entries for all nodes in the inventory
+etc_hosts_auto_generate: true
 
 # NTP (Network Time Protocol) service
 ntp_enabled: true # install and configure the ntp service

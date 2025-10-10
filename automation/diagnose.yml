@@ -1,0 +1,544 @@
+---
+# ========================================================================
+# PLAY 1: Инициализация и создание файла отчета
+# ========================================================================
+- name: "Инициализация диагностики"
+  hosts: localhost
+  gather_facts: true
+  connection: local
+  tasks:
+    - name: "Генерация имени файла отчета"
+      ansible.builtin.set_fact:
+        log_file: "autobase_diagnostics_{{ ansible_date_time.iso8601_basic_short }}.log.txt"
+        report_timestamp: "{{ ansible_date_time.iso8601 }}"
+      delegate_to: localhost
+      delegate_facts: true
+
+    - name: "Создание файла отчета"
+      ansible.builtin.copy:
+        content: |
+          ========================================================================
+          === НАЧАЛО ДИАГНОСТИКИ КЛАСТЕРА AUTOBASE ===
+          ========================================================================
+          Время начала: {{ report_timestamp }}
+          Отчет будет сохранен в файл: {{ log_file }}
+
+        dest: "./{{ log_file }}"
+        mode: '0644'
+
+# ========================================================================
+# PLAY 2: Сбор данных и диагностика на всех хостах
+# ========================================================================
+- name: "Сбор данных и диагностика"
+  hosts: all
+  become: true
+  gather_facts: true
+  tasks:
+    # ----------------------------------------------------------------------
+    # БЛОК 1: Сбор общей информации о системе
+    # ----------------------------------------------------------------------
+    - name: "Сбор информации об uptime"
+      ansible.builtin.command: "uptime"
+      register: system_uptime
+      changed_when: false
+      failed_when: false
+
+    - name: "Проверка использования диска"
+      ansible.builtin.command: "df -h"
+      register: disk_usage
+      changed_when: false
+      failed_when: false
+
+    - name: "Проверка использования памяти"
+      ansible.builtin.command: "free -h"
+      register: memory_usage
+      changed_when: false
+      failed_when: false
+
+    - name: "Проверка статуса SELinux/AppArmor"
+      ansible.builtin.shell: "getenforce 2>/dev/null || aa-status 2>/dev/null || echo 'Not found'"
+      register: selinux_status
+      changed_when: false
+      failed_when: false
+
+    - name: "Проверка статуса firewalld"
+      ansible.builtin.systemd:
+        name: firewalld
+      register: firewalld_status
+      failed_when: false
+      changed_when: false
+
+    - name: "Проверка статуса UFW"
+      ansible.builtin.command: "ufw status"
+      register: ufw_status
+      failed_when: false
+      changed_when: false
+
+    - name: "Сбор правил iptables"
+      ansible.builtin.command: "iptables -L -n -v"
+      register: iptables_rules
+      changed_when: false
+      failed_when: false
+
+    - name: "Проверка разрешения имен хостов"
+      ansible.builtin.command: "getent hosts {{ item }}"
+      register: resolve_check
+      loop: "{{ groups['all'] }}"
+      changed_when: false
+      failed_when: false
+
+    # ----------------------------------------------------------------------
+    # БЛОК 2: Диагностика Patroni и PostgreSQL
+    # ----------------------------------------------------------------------
+    - name: "Сбор логов Patroni"
+      ansible.builtin.command: "journalctl -u patroni -n 100 --no-pager"
+      register: patroni_journal
+      changed_when: false
+      failed_when: false
+      when: "'postgres_cluster' in group_names"
+
+    - name: "Проверка статуса сервиса Patroni"
+      ansible.builtin.systemd:
+        name: patroni
+      register: patroni_service_status
+      failed_when: false
+      changed_when: false
+      when: "'postgres_cluster' in group_names"
+
+    - name: "Проверка портов Patroni и PostgreSQL"
+      ansible.builtin.shell: "ss -tlpn | grep -E ':(8008|5432)\\s' || echo 'Порты не прослушиваются'"
+      register: pg_ports
+      changed_when: false
+      failed_when: false
+      when: "'postgres_cluster' in group_names"
+
+    - name: "Проверка процессов PostgreSQL"
+      ansible.builtin.shell: "ps aux | grep '[p]ostgres:' || echo 'No postgres processes found'"
+      register: pg_processes
+      changed_when: false
+      failed_when: false
+      when: "'postgres_cluster' in group_names"
+
+    - name: "Проверка существования CA-сертификата Patroni"
+      ansible.builtin.stat:
+        path: /etc/patroni/tls/etcd/ca.crt
+      register: patroni_ca_file
+      when: "'postgres_cluster' in group_names"
+
+    - name: "Сбор отпечатка CA-сертификата Patroni"
+      community.crypto.x509_certificate_info:
+        path: /etc/patroni/tls/etcd/ca.crt
+      register: patroni_ca_cert_info
+      failed_when: false
+      when:
+        - "'postgres_cluster' in group_names"
+        - patroni_ca_file is defined
+        - patroni_ca_file.stat.exists | default(false)
+
+    # ----------------------------------------------------------------------
+    # БЛОК 3: Диагностика etcd
+    # ----------------------------------------------------------------------
+    - name: "Сбор логов etcd"
+      ansible.builtin.command: "journalctl -u etcd -n 100 --no-pager"
+      register: etcd_journal
+      changed_when: false
+      failed_when: false
+      when: "'etcd_cluster' in group_names"
+
+    - name: "Проверка статуса сервиса etcd"
+      ansible.builtin.systemd:
+        name: etcd
+      register: etcd_service_status
+      failed_when: false
+      changed_when: false
+      when: "'etcd_cluster' in group_names"
+
+    - name: "Проверка процессов etcd"
+      ansible.builtin.shell: "ps aux | grep '[e]tcd' || echo 'No etcd processes found'"
+      register: etcd_processes
+      changed_when: false
+      failed_when: false
+      when: "'etcd_cluster' in group_names"
+
+    - name: "Проверка портов etcd"
+      ansible.builtin.shell: "ss -tlpn | grep -E ':(2379|2380)\\s' || echo 'Порты не прослушиваются'"
+      register: etcd_ports
+      changed_when: false
+      failed_when: false
+      when: "'etcd_cluster' in group_names"
+
+    - name: "Проверка существования CA-сертификата etcd"
+      ansible.builtin.stat:
+        path: /etc/etcd/tls/ca.crt
+      register: etcd_ca_file
+      when: "'etcd_cluster' in group_names"
+
+    - name: "Сбор отпечатка CA-сертификата etcd"
+      community.crypto.x509_certificate_info:
+        path: /etc/etcd/tls/ca.crt
+      register: etcd_ca_cert_info
+      failed_when: false
+      when:
+        - "'etcd_cluster' in group_names"
+        - etcd_ca_file is defined
+        - etcd_ca_file.stat.exists | default(false)
+
+    - name: "Список участников кластера etcd"
+      ansible.builtin.command: >
+        /usr/local/bin/etcdctl member list --write-out=table
+        --endpoints=https://127.0.0.1:2379
+        --cacert=/etc/etcd/tls/ca.crt
+      environment:
+        ETCDCTL_API: "3"
+      register: etcdctl_member_list
+      changed_when: false
+      failed_when: false
+      run_once: true
+      when: "'etcd_cluster' in group_names"
+
+    - name: "Статус эндпоинтов etcd"
+      ansible.builtin.command: >
+        /usr/local/bin/etcdctl endpoint status --write-out=table --cluster
+        --endpoints=https://127.0.0.1:2379
+        --cacert=/etc/etcd/tls/ca.crt
+      environment:
+        ETCDCTL_API: "3"
+      register: etcdctl_endpoint_status
+      changed_when: false
+      failed_when: false
+      run_once: true
+      when: "'etcd_cluster' in group_names"
+
+    # ----------------------------------------------------------------------
+    # БЛОК 4: Проверка связности Patroni -> etcd
+    # ----------------------------------------------------------------------
+    - name: "Тестирование подключения Patroni к etcd"
+      # mmkolpakov --cert и --key не нужны, если etcd_client_cert_auth: false
+      ansible.builtin.shell: |
+        set -o pipefail
+        TARGET_IP={{ hostvars[item].bind_address }}
+        echo "=== Проверка подключения к {{ item }} ($TARGET_IP:2379) ==="
+        curl --verbose --show-error --connect-timeout 5 --max-time 10 \
+          --cacert /etc/patroni/tls/etcd/ca.crt \
+          --cert /etc/patroni/tls/etcd/server.crt \
+          --key /etc/patroni/tls/etcd/server.key \
+          "https://$TARGET_IP:2379/health" 2>&1
+      args:
+        executable: /bin/bash
+      register: curl_results
+      loop: "{{ groups['etcd_cluster'] | default([]) }}"
+      changed_when: false
+      failed_when: false
+      when: "'postgres_cluster' in group_names"
+
+# ========================================================================
+# PLAY 3: Формирование отчета
+# ========================================================================
+- name: "Формирование отчета"
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  tasks:
+    - name: "Запись результатов диагностики в отчет"
+      ansible.builtin.blockinfile:
+        path: "./{{ hostvars['localhost']['log_file'] }}"
+        marker: "# {mark} РЕЗУЛЬТАТЫ ДИАГНОСТИКИ"
+        block: |
+          ========================================================================
+          === 1. ОБЩАЯ ИНФОРМАЦИЯ О СИСТЕМЕ ===
+          ========================================================================
+          {% for host in groups['all'] %}
+          {% set hv = hostvars[host] %}
+
+          --- [Узел: {{ host }}] ---
+          IP-адрес: {{ hv.ansible_default_ipv4.address | default('N/A') }}
+          ОС: {{ hv.ansible_distribution | default('N/A') }} {{ hv.ansible_distribution_version | default('') }}
+          Uptime: {{ hv.system_uptime.stdout | default('Не удалось получить') }}
+
+          [ИСПОЛЬЗОВАНИЕ ДИСКА]
+          {{ hv.disk_usage.stdout | default('Не удалось получить') | indent(2, first=false) }}
+
+          [ИСПОЛЬЗОВАНИЕ ПАМЯТИ]
+          {{ hv.memory_usage.stdout | default('Не удалось получить') | indent(2, first=false) }}
+
+          [БЕЗОПАСНОСТЬ]
+          SELinux/AppArmor: {{ hv.selinux_status.stdout | default('Неизвестно') }}
+
+          [ФАЙРВОЛ]
+          {% if hv.firewalld_status is defined and hv.firewalld_status.status is defined %}
+          firewalld: {{ '[АКТИВЕН]' if hv.firewalld_status.status.ActiveState == 'active' else '[НЕ АКТИВЕН]' }}
+          {% else %}
+          firewalld: [НЕ УСТАНОВЛЕН]
+          {% endif %}
+          {% if hv.ufw_status is defined and hv.ufw_status.stdout is defined %}
+          ufw: {{ '[АКТИВЕН]' if 'Status: active' in hv.ufw_status.stdout else '[НЕ АКТИВЕН]' }}
+          {% else %}
+          ufw: [НЕ УСТАНОВЛЕН]
+          {% endif %}
+
+          [ПРАВИЛА IPTABLES]
+          {{ hv.iptables_rules.stdout | default('Не удалось получить') | indent(2, first=false) }}
+
+          [РАЗРЕШЕНИЕ ИМЕН ХОСТОВ]
+          {% if hv.resolve_check is defined and hv.resolve_check.results is defined %}
+          {% for res in hv.resolve_check.results %}
+          {% if res.rc == 0 %}
+            [OK] {{ res.item }}: {{ res.stdout }}
+          {% else %}
+            [FAIL] Не удалось разрешить: {{ res.item }}
+          {% endif %}
+          {% endfor %}
+          {% else %}
+            Информация недоступна
+          {% endif %}
+
+          {% endfor %}
+
+          ========================================================================
+          === 2. ДИАГНОСТИКА PATRONI И POSTGRESQL ===
+          ========================================================================
+          {% if 'postgres_cluster' in groups %}
+          {% for host in groups['postgres_cluster'] %}
+          {% set hv = hostvars[host] %}
+
+          --- [Узел: {{ host }}] ---
+
+          [СТАТУС СЕРВИСА PATRONI]
+          {% if hv.patroni_service_status is defined and hv.patroni_service_status.status is defined %}
+          Статус: {{ '[OK] Активен' if hv.patroni_service_status.status.ActiveState == 'active' else '[FAIL] Не активен' }}
+          SubState: {{ hv.patroni_service_status.status.SubState | default('unknown') }}
+          {% else %}
+          Статус: [НЕИЗВЕСТЕН] Не удалось получить статус
+          {% endif %}
+
+          [СЕТЕВЫЕ ПОРТЫ PATRONI/POSTGRESQL]
+          {{ hv.pg_ports.stdout | default('Не удалось проверить порты') | indent(2, first=false) }}
+
+          [ПРОЦЕССЫ POSTGRESQL]
+          {{ hv.pg_processes.stdout | default('Не удалось получить список процессов') | indent(2, first=false) }}
+
+          [ЛОГИ PATRONI (последние 100 строк)]
+          {{ hv.patroni_journal.stdout | default('Не удалось получить логи') | indent(2, first=false) }}
+
+          {% endfor %}
+          {% else %}
+          Группа 'postgres_cluster' не определена в inventory.
+          {% endif %}
+
+          ========================================================================
+          === 3. ДИАГНОСТИКА ETCD КЛАСТЕРА ===
+          ========================================================================
+          {% if 'etcd_cluster' in groups %}
+          {% for host in groups['etcd_cluster'] %}
+          {% set hv = hostvars[host] %}
+
+          --- [Узел: {{ host }}] ---
+
+          [СТАТУС СЕРВИСА ETCD]
+          {% if hv.etcd_service_status is defined and hv.etcd_service_status.status is defined %}
+          Статус: {{ '[OK] Активен' if hv.etcd_service_status.status.ActiveState == 'active' else '[FAIL] Не активен' }}
+          SubState: {{ hv.etcd_service_status.status.SubState | default('unknown') }}
+          {% else %}
+          Статус: [НЕИЗВЕСТЕН] Не удалось получить статус
+          {% endif %}
+
+          [СЕТЕВЫЕ ПОРТЫ ETCD]
+          {{ hv.etcd_ports.stdout | default('Не удалось проверить порты') | indent(2, first=false) }}
+
+          [ПРОЦЕССЫ ETCD]
+          {{ hv.etcd_processes.stdout | default('Не удалось получить список процессов') | indent(2, first=false) }}
+
+          [ЛОГИ ETCD (последние 100 строк)]
+          {{ hv.etcd_journal.stdout | default('Не удалось получить логи') | indent(2, first=false) }}
+
+          {% endfor %}
+
+          {% if groups['etcd_cluster'] | length > 0 %}
+          {% set first_etcd = groups['etcd_cluster'][0] %}
+          {% set hv = hostvars[first_etcd] %}
+
+          --- [Информация о кластере etcd (с узла {{ first_etcd }})] ---
+
+          [СПИСОК УЧАСТНИКОВ КЛАСТЕРА]
+          {{ hv.etcdctl_member_list.stdout | default('Не удалось получить список участников') | indent(2, first=false) }}
+
+          [СТАТУС ЭНДПОИНТОВ]
+          {{ hv.etcdctl_endpoint_status.stdout | default('Не удалось получить статус эндпоинтов') | indent(2, first=false) }}
+          {% endif %}
+          {% else %}
+          Группа 'etcd_cluster' не определена в inventory.
+          {% endif %}
+
+          ========================================================================
+          === 4. ПРОВЕРКА СЕРТИФИКАТОВ И СВЯЗНОСТИ PATRONI -> ETCD ===
+          ========================================================================
+
+          [СРАВНЕНИЕ CA-СЕРТИФИКАТОВ]
+          {% if 'etcd_cluster' in groups and groups['etcd_cluster'] | length > 0 %}
+          {% set first_etcd = groups['etcd_cluster'][0] %}
+          {% set etcd_hv = hostvars[first_etcd] %}
+          {% set etcd_fp = etcd_hv.etcd_ca_cert_info.fingerprints.sha256 | default('NOT_FOUND') if etcd_hv.etcd_ca_cert_info is defined else 'NOT_FOUND' %}
+
+          Отпечаток CA на etcd-узле ({{ first_etcd }}):
+            {{ etcd_fp }}
+          {% else %}
+          Отпечаток CA на etcd-узле: ГРУППА НЕ ОПРЕДЕЛЕНА
+          {% set etcd_fp = 'NOT_FOUND' %}
+          {% endif %}
+
+          {% if 'postgres_cluster' in groups and groups['postgres_cluster'] | length > 0 %}
+          {% set first_pg = groups['postgres_cluster'][0] %}
+          {% set pg_hv = hostvars[first_pg] %}
+          {% set patroni_fp = pg_hv.patroni_ca_cert_info.fingerprints.sha256 | default('NOT_FOUND') if pg_hv.patroni_ca_cert_info is defined else 'NOT_FOUND' %}
+
+          Отпечаток CA на patroni-узле ({{ first_pg }}):
+            {{ patroni_fp }}
+          {% else %}
+          Отпечаток CA на patroni-узле: ГРУППА НЕ ОПРЕДЕЛЕНА
+          {% set patroni_fp = 'NOT_FOUND' %}
+          {% endif %}
+
+          {% if etcd_fp == patroni_fp and etcd_fp != 'NOT_FOUND' %}
+          [OK] Отпечатки CA-сертификатов совпадают.
+          {% else %}
+          [FAIL] Отпечатки CA-сертификатов РАЗЛИЧАЮТСЯ или не найдены!
+          {% endif %}
+
+          [ТЕСТЫ ПОДКЛЮЧЕНИЯ PATRONI -> ETCD]
+          {% if 'postgres_cluster' in groups %}
+          {% for pg_host in groups['postgres_cluster'] %}
+          {% set pg_hv = hostvars[pg_host] %}
+          {% if pg_hv.curl_results is defined and pg_hv.curl_results.results is defined %}
+          {% for result in pg_hv.curl_results.results %}
+
+          --- [Проверка: {{ pg_host }} -> {{ result.item }}] ---
+          {% if result.rc == 0 %}
+          [OK] Подключение успешно
+          {% else %}
+          [FAIL] Подключение не удалось
+          {% endif %}
+          Вывод:
+          {{ result.stdout | default('') | indent(2, first=false) }}
+          {% if result.stderr is defined and result.stderr | length > 0 %}
+          Ошибки:
+          {{ result.stderr | indent(2, first=false) }}
+          {% endif %}
+          {% endfor %}
+          {% endif %}
+          {% endfor %}
+          {% else %}
+          Группа 'postgres_cluster' не определена.
+          {% endif %}
+
+          ========================================================================
+          === 5. РЕКОМЕНДАЦИИ ПО УСТРАНЕНИЮ ПРОБЛЕМ ===
+          ========================================================================
+
+          {% set issues_found = [] %}
+
+          {# Проверка совпадения сертификатов #}
+          {% if 'etcd_cluster' in groups and 'postgres_cluster' in groups %}
+          {% if groups['etcd_cluster'] | length > 0 and groups['postgres_cluster'] | length > 0 %}
+          {% set first_etcd = groups['etcd_cluster'][0] %}
+          {% set first_pg = groups['postgres_cluster'][0] %}
+          {% set etcd_hv = hostvars[first_etcd] %}
+          {% set pg_hv = hostvars[first_pg] %}
+          {% set etcd_fp = etcd_hv.etcd_ca_cert_info.fingerprints.sha256 | default('NOT_FOUND') if etcd_hv.etcd_ca_cert_info is defined else 'NOT_FOUND' %}
+          {% set patroni_fp = pg_hv.patroni_ca_cert_info.fingerprints.sha256 | default('NOT_FOUND') if pg_hv.patroni_ca_cert_info is defined else 'NOT_FOUND' %}
+          {% if etcd_fp != patroni_fp %}
+          {% set _ = issues_found.append('cert_mismatch') %}
+          - [КРИТИЧНО] CA-сертификаты на узлах etcd и patroni не совпадают!
+          {% endif %}
+          {% endif %}
+          {% endif %}
+
+          {# Проверка проблем подключения #}
+          {% if 'postgres_cluster' in groups %}
+          {% for pg_host in groups['postgres_cluster'] %}
+          {% set pg_hv = hostvars[pg_host] %}
+          {% if pg_hv.curl_results is defined and pg_hv.curl_results.results is defined %}
+          {% for result in pg_hv.curl_results.results %}
+          {% if result.rc != 0 %}
+          {% set _ = issues_found.append('connection_failure') %}
+          - [КРИТИЧНО] Узел {{ pg_host }} не может подключиться к etcd ({{ result.item }})
+          {% endif %}
+          {% endfor %}
+          {% endif %}
+          {% endfor %}
+          {% endif %}
+
+          {# Проверка файрволов #}
+          {% for host in groups['all'] %}
+          {% set hv = hostvars[host] %}
+          {% if hv.firewalld_status is defined and hv.firewalld_status.status is defined %}
+          {% if hv.firewalld_status.status.ActiveState == 'active' %}
+          {% set _ = issues_found.append('firewall_active') %}
+          - [ВНИМАНИЕ] На узле {{ host }} активен firewalld
+          {% endif %}
+          {% endif %}
+          {% if hv.ufw_status is defined and hv.ufw_status.stdout is defined %}
+          {% if 'Status: active' in hv.ufw_status.stdout %}
+          {% set _ = issues_found.append('firewall_active') %}
+          - [ВНИМАНИЕ] На узле {{ host }} активен UFW
+          {% endif %}
+          {% endif %}
+          {% endfor %}
+
+          {# Проверка SELinux #}
+          {% for host in groups['all'] %}
+          {% set hv = hostvars[host] %}
+          {% if hv.selinux_status is defined and hv.selinux_status.stdout is defined %}
+          {% if 'Enforcing' in hv.selinux_status.stdout %}
+          {% set _ = issues_found.append('selinux_enforcing') %}
+          - [ВНИМАНИЕ] На узле {{ host }} SELinux в режиме Enforcing
+          {% endif %}
+          {% endif %}
+          {% endfor %}
+
+          {# Проверка статуса сервисов #}
+          {% if 'etcd_cluster' in groups %}
+          {% for host in groups['etcd_cluster'] %}
+          {% set hv = hostvars[host] %}
+          {% if hv.etcd_service_status is defined and hv.etcd_service_status.status is defined %}
+          {% if hv.etcd_service_status.status.ActiveState != 'active' %}
+          {% set _ = issues_found.append('etcd_not_running') %}
+          - [КРИТИЧНО] Сервис etcd на узле {{ host }} не запущен!
+          {% endif %}
+          {% endif %}
+          {% endfor %}
+          {% endif %}
+
+          {% if 'postgres_cluster' in groups %}
+          {% for host in groups['postgres_cluster'] %}
+          {% set hv = hostvars[host] %}
+          {% if hv.patroni_service_status is defined and hv.patroni_service_status.status is defined %}
+          {% if hv.patroni_service_status.status.ActiveState != 'active' %}
+          {% set _ = issues_found.append('patroni_not_running') %}
+          - [КРИТИЧНО] Сервис patroni на узле {{ host }} не запущен!
+          {% endif %}
+          {% endif %}
+          {% endfor %}
+          {% endif %}
+
+          {% if issues_found | length == 0 %}
+          [OK] Критичных проблем не обнаружено.
+          Если кластер всё ещё не работает, проверьте полные логи сервисов.
+          {% else %}
+          Обнаружено проблем: {{ issues_found | length }}
+
+          {% endif %}
+
+          ========================================================================
+          === ДИАГНОСТИКА ЗАВЕРШЕНА ===
+          ========================================================================
+          Время завершения: {{ ansible_date_time.iso8601 }}
+          Отчет сохранен в: {{ hostvars['localhost']['log_file'] }}
+          ========================================================================
+
+    - name: "Отображение пути к отчету"
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "Диагностика завершена!"
+          - "Отчет сохранен в: ./{{ hostvars['localhost']['log_file'] }}"
+          - "=========================================="

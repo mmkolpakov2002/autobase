@@ -79,10 +79,20 @@
 
 # TLS
 - block:
+    # mmkolpakov changes
+    - name: Ensure etcd TLS directory exists
+      ansible.builtin.file:
+        path: "{{ etcd_tls_dir | default('/etc/etcd/tls') }}"
+        state: directory
+        owner: etcd
+        group: etcd
+        mode: "0750"
+
     - name: Generate etcd TLS certificate
       ansible.builtin.include_role:
         name: vitabaks.autobase.tls_certificate
       vars:
+        generate_tls_group: "etcd"
         tls_group_name: "etcd_cluster"
         generate_tls_owner: "etcd"
         generate_tls_common_name: "etcd"
@@ -114,12 +124,16 @@
     src: templates/etcd.conf.j2
     dest: "{{ etcd_conf_dir | default('/etc/etcd') }}/etcd.conf"
   tags: etcd, etcd_conf
+  # mmkolpakov changes
+  notify: "restart etcd"
 
 - name: Copy systemd service file
   ansible.builtin.template:
     src: templates/etcd.service.j2
     dest: /etc/systemd/system/etcd.service
   tags: etcd, etcd_conf
+  # mmkolpakov changes
+  notify: "restart etcd"
 
 - name: Start etcd service and check cluster health
   ansible.builtin.include_tasks: start.yml

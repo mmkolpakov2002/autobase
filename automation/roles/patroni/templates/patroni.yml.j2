@@ -2,7 +2,7 @@
 ---
 
 scope: {{ patroni_cluster_name }}
-name: {{ ansible_hostname }}
+name: {{ inventory_hostname }}
 namespace: /{{ patroni_etcd_namespace | default('service') }}
 
 log:
@@ -20,24 +20,19 @@ log:
     patroni.postmaster: {{ patroni_log_loggers_patroni_postmaster |upper }}
     urllib3: {{ patroni_log_loggers_urllib3 |upper }}
 
+# mmkolpakov changes
 restapi:
   listen: {{ patroni_restapi_listen_addr }}:{{ patroni_restapi_port }}
   connect_address: {{ patroni_restapi_connect_addr | default(patroni_bind_address | default(bind_address, true), true) }}:{{ patroni_restapi_port }}
-  {% if patroni_restapi_protocol | default('http') == 'https' and (patroni_restapi_certfile | default('') | length > 0 and patroni_restapi_keyfile | default('') | length > 0) %}
-  certfile: {{ patroni_restapi_certfile }}
-  keyfile: {{ patroni_restapi_keyfile }}
-  {% endif %}
-  {% if patroni_restapi_protocol | default('http') == 'https' and patroni_restapi_cafile | default('') | length > 0 %}
-  cafile: {{ patroni_restapi_cafile }}
-  {% endif %}
+{% if patroni_restapi_protocol == 'https' %}
+  certfile: {{ tls_dir }}/{{ tls_cert }}
+  keyfile: {{ tls_dir }}/{{ tls_privatekey }}
+  cafile: {{ tls_dir }}/{{ tls_ca_cert }}
+{% endif %}
 {% if patroni_restapi_password | default('') | length > 0 %}
   authentication:
     username: {{ patroni_restapi_username | default('patroni') }}
     password: {{ patroni_restapi_password }}
-{% else %}
-#  authentication:
-#    username: username
-#    password: password
 {% endif %}
 {% if patroni_restapi_request_queue_size is defined %}
   request_queue_size: {{ patroni_restapi_request_queue_size |int }}
@@ -45,19 +40,18 @@ restapi:
 
 {% if dcs_type == 'etcd' %}
 etcd3:
-  {% if not dcs_exists|bool %}
-  hosts: {% for host in etcd_hosts %}{{ hostvars[host]['etcd_bind_address'] | default(hostvars[host]['bind_address'], true) }}:2379{% if not loop.last %},{% endif %}{% endfor %}
-  {% endif %}
-  {% if dcs_exists|bool %}
-  hosts: {% for etcd_hosts in patroni_etcd_hosts %}{{etcd_hosts.host}}:{{etcd_hosts.port}}{% if not loop.last %},{% endif %}{% endfor %}
-  {% endif %}
-
-  {% if etcd_tls_enable | default(false) | bool %}
-  protocol: https
+  hosts:
+  {% for host in etcd_hosts %}
+    - {{ hostvars[host]['etcd_bind_address'] | default(hostvars[host]['bind_address'], true) }}:2379
+  {% endfor %}
+  protocol: {{ patroni_etcd_protocol }}
+{% if etcd_tls_enable | default(true) | bool %}
   cacert: {{ patroni_etcd_cacert | default('/etc/patroni/tls/etcd/ca.crt') }}
+  {% if patroni_etcd_use_client_cert | default(false) | bool %}
   cert: {{ patroni_etcd_cert | default('/etc/patroni/tls/etcd/server.crt') }}
   key: {{ patroni_etcd_key | default('/etc/patroni/tls/etcd/server.key') }}
   {% endif %}
+{% endif %}
   {% if patroni_etcd_username | default('') | length > 0 %}
   username: {{ patroni_etcd_username | default('') }}
   {% endif %}
@@ -148,6 +142,7 @@ bootstrap:
   {% endif %}
 
   pg_hba:  # Add following lines to pg_hba.conf after running 'initdb'
+    - local all postgres trust
     - host replication {{ patroni_replication_username }} 127.0.0.1/32 {{ postgresql_password_encryption_algorithm }}
     - host all all 0.0.0.0/0 {{ postgresql_password_encryption_algorithm }}
 
@@ -188,6 +183,18 @@ postgresql:
 #    rewind:  # Has no effect on postgres 10 and lower
 #      username: rewind_user
 #      password: rewind_password
+  pg_hba:
+  {# First, add the static rules defined by the user in the variable #}
+  {% for rule in postgresql_pg_hba %}
+    - "{{ rule.type }} {{ rule.database }} {{ rule.user }}{% if rule.type != 'local' %} {{ rule.address }}{% endif %} {{ rule.method }}{% if rule.options is defined %} {{ rule.options }}{% endif %}"
+  {% endfor %}
+  {# Then, if auto-generation is enabled, add dynamic rules for all cluster nodes #}
+  {% if patroni_auto_generate_hba_rules | default(true) %}
+  {% for host in groups['postgres_cluster'] %}
+    - "{{ host_type }} replication {{ patroni_replication_username }} {{ hostvars[host].bind_address }}/32 scram-sha-256"
+    - "{{ host_type }} all all {{ hostvars[host].bind_address }}/32 scram-sha-256"
+  {% endfor %}
+  {% endif %}
   parameters:
     unix_socket_directories: {{ postgresql_unix_socket_dir }}
 {% if local_postgresql_parameters is defined and local_postgresql_parameters | length > 0 %}

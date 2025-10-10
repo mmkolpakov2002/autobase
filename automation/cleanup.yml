@@ -1,0 +1,173 @@
+---
+- hosts: all
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Загрузить переменные по умолчанию из роли common
+      ansible.builtin.import_role:
+        name: vitabaks.autobase.common
+
+  tasks:
+    - name: "1.1. Остановить и отключить все сервисы Autobase"
+      ansible.builtin.service:
+        name: "{{ item }}"
+        state: stopped
+        enabled: no
+      loop:
+        - patroni
+        - etcd
+        - haproxy
+        - keepalived
+        - vip-manager
+        - confd
+        - "postgresql-{{ postgresql_version }}" # Для RHEL
+        - "postgresql@{{ postgresql_version }}-main" # Для Debian
+        - firewalld # RHEL/CentOS
+        - ufw # Ubuntu/Debian
+      ignore_errors: true
+      changed_when: false
+
+    - name: "2.1. Завершить все процессы пользователей (TERM)"
+      ansible.builtin.command: "pkill -TERM -u {{ item }}"
+      loop:
+        - postgres
+        - etcd
+        - haproxy
+      failed_when: false
+      changed_when: false
+
+    - name: "2.2. Пауза для корректного завершения"
+      ansible.builtin.pause:
+        seconds: 3
+
+    - name: "2.3. Принудительно завершить все процессы пользователей (KILL)"
+      ansible.builtin.command: "pkill -KILL -u {{ item }}"
+      loop:
+        - postgres
+        - etcd
+        - haproxy
+      failed_when: false
+      changed_when: false
+
+    - name: "3.1. Удалить пакеты (Debian/Ubuntu)"
+      ansible.builtin.apt:
+        name:
+          - "postgresql-{{ postgresql_version }}*"
+          - "patroni*"
+          - "etcd*"
+          - "haproxy*"
+          - "keepalived*"
+          - "vip-manager*"
+          - "pgbouncer*"
+          - ufw
+          - iptables-persistent
+        state: absent
+        purge: yes
+        autoremove: yes
+      when: ansible_os_family == "Debian"
+      ignore_errors: true
+
+    - name: "3.2. Удалить пакеты (RHEL-based)"
+      ansible.builtin.dnf:
+        name:
+          - "postgresql{{ postgresql_version }}*"
+          - "patroni*"
+          - "etcd*"
+          - "haproxy*"
+          - "keepalived*"
+          - "vip-manager*"
+          - "pgbouncer*"
+          - firewalld
+        state: absent
+      when: ansible_os_family == "RedHat"
+      ignore_errors: true
+
+    - name: "4.1. Сбросить правила iptables"
+      ansible.builtin.command: "{{ item }}"
+      loop:
+        - "iptables -F"
+        - "iptables -X"
+        - "iptables -t nat -F"
+        - "iptables -t nat -X"
+      changed_when: false
+      ignore_errors: true
+
+    - name: "4.2. Удалить кастомные systemd юниты и скрипты"
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/systemd/system/patroni.service
+        - /etc/systemd/system/etcd.service
+        - /etc/systemd/system/haproxy.service
+        - /etc/systemd/system/vip-manager.service
+        - /etc/systemd/system/firewall.service
+        - /etc/firewall.bash
+      ignore_errors: true
+
+    - name: "4.3. Перезагрузить конфигурацию systemd"
+      ansible.builtin.systemd:
+        daemon_reload: yes
+      ignore_errors: true
+
+    - name: "4.4. Удалить бинарные файлы, установленные вручную"
+      ansible.builtin.file:
+        path: "/usr/local/bin/{{ item }}"
+        state: absent
+      loop:
+        - etcd
+        - etcdctl
+        - wal-g
+        - confd
+      ignore_errors: true
+
+    - name: "4.5. Удалить все конфигурационные файлы, данные и логи"
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        # Data
+        - /var/lib/postgresql
+        - /var/lib/etcd
+        - /var/lib/pg_data
+        # Configs
+        - /etc/patroni
+        - /etc/etcd
+        - /etc/haproxy
+        - /etc/keepalived
+        - /etc/pgbouncer
+        # Logs
+        - /var/log/postgresql
+        - /var/log/patroni
+        - /var/log/haproxy
+        # Other
+        - /var/run/pgbouncer
+        - /var/run/haproxy
+        - /tmp/postgres
+      ignore_errors: true
+
+    - name: "5.1. Удалить системных пользователей"
+      ansible.builtin.user:
+        name: "{{ item }}"
+        state: absent
+        remove: yes
+      loop:
+        - postgres
+        - etcd
+        - haproxy
+      ignore_errors: true
+
+    - name: "5.2. Удалить системные группы (если они остались)"
+      ansible.builtin.group:
+        name: "{{ item }}"
+        state: absent
+      loop:
+        - postgres
+        - etcd
+        - haproxy
+      ignore_errors: true
+
+    - name: "Финальное сообщение об успешной очистке"
+      ansible.builtin.debug:
+        msg: "Очистка хоста {{ inventory_hostname }} успешно завершена."

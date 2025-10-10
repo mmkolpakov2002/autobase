@@ -2,6 +2,31 @@
 - name: Make sure handlers are flushed immediately
   ansible.builtin.meta: flush_handlers
 
+# mmkolpakov changes
+- name: Create patroni log directory
+  ansible.builtin.file:
+    path: "{{ patroni_log_dir }}"
+    owner: postgres
+    group: postgres
+    state: directory
+    mode: "0750"
+  when: patroni_log_destination == 'logfile'
+  tags: patroni, patroni_conf
+
+- name: Ensure pg_ident.conf file exists to prevent PostgreSQL warnings
+  become: true
+  ansible.builtin.file:
+    path: "{{ postgresql_conf_dir }}/pg_ident.conf"
+    state: touch
+    owner: postgres
+    group: postgres
+    mode: "0600"
+  when:
+    # Create the file only if the user has not defined his own identity cards
+    # If they are defined, Patroni will create and fill in this file itself
+    - postgresql_pg_ident is not defined or postgresql_pg_ident | length == 0
+  tags: patroni, patroni_conf
+
 # pip install
 - ansible.builtin.import_tasks: pip.yml
   when:
@@ -202,6 +227,27 @@
     mode: "0750"
   tags: patroni, patroni_conf
 
+# mmkolpakov changes
+- name: Create PostgreSQL conf directory
+  ansible.builtin.file:
+    path: "{{ postgresql_conf_dir }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0750"
+  when: ansible_os_family == "Debian"
+  tags: patroni, patroni_conf
+
+- name: Create PostgreSQL conf.d directory for includes
+  ansible.builtin.file:
+    path: "{{ postgresql_conf_dir }}/conf.d"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0750"
+  when: ansible_os_family == "Debian"
+  tags: patroni, patroni_conf
+
 # TLS (etcd)
 - name: Copy etcd cert files for patroni
   ansible.builtin.include_role:
@@ -216,6 +262,16 @@
     - tls_cert_generate | bool
     - dcs_type == "etcd"
     - not dcs_exists | bool
+  tags: patroni, patroni_conf
+
+- name: Ensure correct ownership for all patroni configuration directories
+  become: true
+  ansible.builtin.file:
+    path: /etc/patroni
+    state: directory
+    owner: postgres
+    group: postgres
+    recurse: yes
   tags: patroni, patroni_conf
 
 # TLS (consul)
@@ -237,16 +293,6 @@
 - name: Create patroni config file
   ansible.builtin.import_tasks: patroni.yml
   when: cluster_scaling is not defined or not cluster_scaling | bool
-  tags: patroni, patroni_conf
-
-- name: Create patroni log directory
-  ansible.builtin.file:
-    path: "{{ patroni_log_dir }}"
-    owner: postgres
-    group: postgres
-    state: directory
-    mode: "0750"
-  when: patroni_log_destination == 'logfile'
   tags: patroni, patroni_conf
 
 - block: # if cluster_scaling (add_node.yml)
@@ -415,16 +461,21 @@
         owner: postgres
         group: postgres
         recurse: true
-      when: ansible_os_family == "Debian" and
-        postgresql_packages|join(" ") is not search("postgrespro")
+      # mmkolpakov changes
+      when:
+        - ansible_os_family == "Debian"
+        - "'postgrespro' not in (postgresql_packages | join(' '))"
 
     - name: Prepare PostgreSQL | make sure PostgreSQL config files exists
       ansible.builtin.stat:
         path: "{{ postgresql_conf_dir }}/postgresql.conf"
       register: postgresql_conf_file
-      when: ansible_os_family == "Debian" and
-        postgresql_packages|join(" ") is not search("postgrespro")
+      # mmkolpakov changes
+      when:
+        - ansible_os_family == "Debian"
+        - "'postgrespro' not in (postgresql_packages | join(' '))"
 
+    # mmkolpakov changes
     - name: Prepare PostgreSQL | generate default PostgreSQL config files
       become: true
       become_user: postgres
@@ -836,6 +887,20 @@
     (cluster_scaling is not defined or not cluster_scaling | bool)
   tags: patroni
 
+- name: "Ensure correct permissions for PostgreSQL TLS files"
+  become: true
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: postgres
+    group: postgres
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ tls_dir }}/{{ tls_privatekey }}", mode: '0600' }
+    - { path: "{{ tls_dir }}/{{ tls_cert }}", mode: '0640' }
+    - { path: "{{ tls_dir }}/{{ tls_ca_cert }}", mode: '0640' }
+  when: tls_cert_generate | bool
+  tags: patroni, tls_permissions
+
 - block: # start patroni on master
     - name: Start patroni service on the Master server
       ansible.builtin.systemd:
@@ -926,6 +991,20 @@
       when: inventory_hostname == groups['master'][0] or
         (('replica' in groups and groups['replica'] | length > 0 and inventory_hostname in groups['replica'] and postgresql_conf_dir != postgresql_data_dir)
         or postgresql_exists | default(false) | bool)
+
+    - name: Prepare PostgreSQL | validate generated pg_hba.conf
+      become: true
+      become_user: postgres
+      community.postgresql.postgresql_query:
+        login_host: "127.0.0.1"
+        login_port: "{{ postgresql_port }}"
+        login_user: "{{ patroni_superuser_username }}"
+        login_password: "{{ patroni_superuser_password }}"
+        login_db: "postgres"
+        query: "SELECT * FROM pg_hba_file_rules WHERE error IS NOT NULL"
+      register: pg_hba_validate_result
+      failed_when: pg_hba_validate_result.query_result | length > 0
+      when: inventory_hostname == groups['master'][0]
 
     - name: Prepare PostgreSQL | reload for apply the pg_hba.conf
       become: true

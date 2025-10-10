@@ -1,12 +1,23 @@
 ---
-- name: Add entries into /etc/hosts file
+# mmkolpakov changes
+- name: Add static entries into /etc/hosts file
   ansible.builtin.lineinfile:
     path: /etc/hosts
     regexp: "^{{ item }}"
     line: "{{ item }}"
-    unsafe_writes: true # to prevent failures in CI
+    unsafe_writes: true
   loop: "{{ etc_hosts }}"
   when:
     - etc_hosts is defined
     - etc_hosts | length > 0
+  tags: etc_hosts
+
+# mmkolpakov changes
+- name: Add auto-generated entries for all cluster nodes into /etc/hosts
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: ".*{{ hostvars[item].inventory_hostname }}$"
+    line: "{{ hostvars[item].ansible_host | default(hostvars[item].bind_address) }} {{ hostvars[item].inventory_hostname }}"
+  loop: "{{ groups['all'] }}"
+  when: etc_hosts_auto_generate | default(false)
   tags: etc_hosts

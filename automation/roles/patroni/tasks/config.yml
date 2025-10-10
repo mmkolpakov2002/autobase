@@ -108,9 +108,11 @@
   when: item.value == "null"
   tags: patroni, patroni_conf
 
-# Update pg_hba.conf
-- ansible.builtin.import_tasks: pg_hba.yml
+# mmkolpakov changes
+- name: Update pg_hba.conf
+  ansible.builtin.import_tasks: pg_hba.yml
   tags: patroni, patroni_conf, pg_hba, pg_hba_generate
+  when: patroni_auto_generate_pg_hba | default(true) | bool
 
 # pending_restart
 - block:

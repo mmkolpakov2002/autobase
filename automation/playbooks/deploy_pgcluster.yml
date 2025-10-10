@@ -30,6 +30,36 @@
   environment: "{{ proxy_env | default({}) }}"
 
   pre_tasks:
+    - name: "Ensure 'postgres' user and group exist on PostgreSQL nodes"
+      ansible.builtin.user:
+        name: postgres
+        comment: "PostgreSQL system user"
+        state: present
+        system: yes
+      when: "'postgres_cluster' in group_names"
+      tags: always
+
+    # mmkolpakov changes
+    - name: Ensure apt is not locked
+      block:
+        - name: Kill any existing apt processes
+          ansible.builtin.command: pkill -9 apt
+          register: pkill_apt
+          failed_when: "pkill_apt.rc not in [0, 1]"
+          changed_when: pkill_apt.rc == 0
+
+        - name: Remove apt lock files
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - /var/lib/apt/lists/lock
+            - /var/cache/apt/archives/lock
+            - /var/lib/dpkg/lock
+            - /var/lib/dpkg/lock-frontend
+      when: ansible_os_family == "Debian"
+      ignore_errors: true
+
     - name: Gather package facts
       ansible.builtin.package_facts:
         manager: auto
@@ -199,6 +229,25 @@
   environment: "{{ proxy_env | default({}) }}"
 
   pre_tasks:
+    # mmkolpakov changes
+    - name: Ensure DCS is clean for a new cluster bootstrap
+      ansible.builtin.command: >-
+        /usr/local/bin/etcdctl del /service/{{ patroni_cluster_name }} --prefix
+        --endpoints={% for host in groups['etcd_cluster'] %}{{ patroni_etcd_protocol }}://{{ hostvars[host]['bind_address'] }}:2379{% if not loop.last %},{% endif %}{% endfor %}
+        --cacert=/etc/etcd/tls/ca.crt
+        --cert=/etc/etcd/tls/server.crt
+        --key=/etc/etcd/tls/server.key
+      environment:
+        ETCDCTL_API: "3"
+      delegate_to: "{{ groups['etcd_cluster'][0] }}"
+      run_once: true
+      changed_when: false
+      ignore_errors: true
+      when:
+        - dcs_type == "etcd"
+        - not dcs_exists | bool
+        - deploy_clean_dcs_on_bootstrap | default(true) | bool
+
     - name: Build a firewall_ports_dynamic_var
       ansible.builtin.set_fact:
         firewall_ports_dynamic_var: "{{ firewall_ports_dynamic_var | default([]) + (firewall_allowed_tcp_ports_for[item] | default([])) }}"

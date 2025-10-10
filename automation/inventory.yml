@@ -1,0 +1,36 @@
+---
+all:
+  # Глобальные переменные для всех хостов
+  vars:
+    # Пользователь, под которым Ansible будет заходить на ВМ
+    ansible_user: mmkolpakov
+    # Путь к приватному ключу на управляющей машине
+    ansible_ssh_private_key_file: /home/mmkolpakov/.ssh/mipt-wsl22
+    # Общий IP-адрес для всех ВМ
+    ansible_host: 77.105.182.79
+
+  children:
+    balancers:
+      hosts:
+        balancer:
+          ansible_port: 27022 # Порт для balancer
+    postgres_cluster:
+      hosts:
+        bd1:
+          ansible_port: 27023 # Порт для bd1
+        bd2:
+          ansible_port: 27024 # Порт для bd2
+    etcd_cluster:
+      hosts:
+        etcd1:
+          ansible_port: 27025 # Порт для etcd1
+        etcd2:
+          ansible_port: 27026 # Порт для etcd2
+        etcd3:
+          ansible_port: 27027 # Порт для etcd3
+    master:
+      hosts:
+        bd1:
+    replica:
+      hosts:
+        bd2:

@@ -1,0 +1,41 @@
+---
+# mmkolpakov
+# тип DCS (Distributed Consensus Store)
+dcs_type: "etcd"
+
+# развертывание HAProxy
+with_haproxy_load_balancing: true
+
+# выкл PgBouncer, HAProxy единая точка входа
+pgbouncer_install: false
+
+# пароли
+patroni_superuser_password: "mmkolpakovPostgresPassword123!"
+patroni_replication_password: "mmkolpakovReplicationPassword456!"
+
+tls_cert_generate: true
+
+etcd_tls_enable: true
+etcd_client_cert_auth: false
+patroni_etcd_use_client_cert: false
+patroni_etcd_protocol: "https"
+patroni_restapi_protocol: "https"
+
+firewall_enabled_at_boot: false
+# ----------------------------------------------------
+
+patroni_etcd_cacert: "/etc/patroni/tls/etcd/ca.crt"
+patroni_etcd_cert: "/etc/patroni/tls/etcd/server.crt"
+patroni_etcd_key: "/etc/patroni/tls/etcd/server.key"
+
+log:
+  level: INFO
+
+host_type: "hostssl"
+postgresql_pg_hba:
+  - { type: "local", database: "all", user: "all", address: "", method: "trust" }
+  - { type: "local", database: "all", user: "{{ patroni_superuser_username }}", address: "", method: "trust" }
+  - { type: "local", database: "all", user: "{{ pgbouncer_auth_username }}", address: "", method: "trust" } # для pgbouncer
+  - { type: "host", database: "all", user: "all", address: "127.0.0.1/32", method: "{{ postgresql_password_encryption_algorithm }}" }
+  - { type: "host", database: "all", user: "all", address: "::1/128", method: "{{ postgresql_password_encryption_algorithm }}" }
+  - { type: "{{ host_type }}", database: "all", user: "all", address: "0.0.0.0/0", method: "{{ postgresql_password_encryption_algorithm }}" }

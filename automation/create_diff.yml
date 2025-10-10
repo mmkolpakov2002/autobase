@@ -1,0 +1,86 @@
+---
+- name: Generate Git patch to track local changes
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    project_root: "{{ playbook_dir | dirname }}"
+    base_commit_ref: "f57fbe2f"
+    patch_output_file: "{{ project_root }}/automation/project_changes.patch.txt"
+
+  tasks:
+    - name: Check if it is a git repository
+      ansible.builtin.stat:
+        path: "{{ project_root }}/.git"
+      register: git_dir
+
+    - name: Fail if not a git repository
+      ansible.builtin.fail:
+        msg: "The specified project directory '{{ project_root }}' is not a Git repository."
+      when: not git_dir.stat.exists
+
+    - name: Ensure the base commit/tag exists
+      ansible.builtin.command: "git cat-file -t {{ base_commit_ref }}"
+      args:
+        chdir: "{{ project_root }}"
+      register: check_commit
+      changed_when: false
+      failed_when: check_commit.rc != 0
+      ignore_errors: true
+
+    - name: Fail if base commit does not exist
+      ansible.builtin.fail:
+        msg: |
+          The base commit '{{ base_commit_ref }}' was not found in the repository.
+          Please ensure you have the correct commit hash or tag.
+          You might need to run 'git fetch --all --tags' from the original repository.
+      when: check_commit.rc != 0
+
+    - name: Check if there are any changes
+      ansible.builtin.command: "git diff {{ base_commit_ref }} --quiet"
+      args:
+        chdir: "{{ project_root }}"
+      register: has_changes
+      failed_when: false
+      changed_when: false
+
+    - name: Fail if no changes detected
+      ansible.builtin.fail:
+        msg: "No changes detected between {{ base_commit_ref }} and current state."
+      when: has_changes.rc == 0
+
+    - name: Generate comprehensive patch file
+      ansible.builtin.command: "git diff {{ base_commit_ref }}"
+      args:
+        chdir: "{{ project_root }}"
+      register: patch_content
+      changed_when: false
+
+    - name: Write patch to file
+      ansible.builtin.copy:
+        content: "{{ patch_content.stdout }}"
+        dest: "{{ patch_output_file }}"
+        mode: '0644'
+
+    - name: Show summary of changes included in the patch
+      ansible.builtin.command: "git diff --stat {{ base_commit_ref }}"
+      args:
+        chdir: "{{ project_root }}"
+      register: diff_stats
+      changed_when: false
+
+    - name: Display summary of changes
+      ansible.builtin.debug:
+        msg: "{{ diff_stats.stdout_lines }}"
+
+    - name: Verify patch file was created
+      ansible.builtin.stat:
+        path: "{{ patch_output_file }}"
+      register: patch_file
+
+    - name: Report patch file details
+      ansible.builtin.debug:
+        msg: |
+          Patch successfully created at: {{ patch_output_file }}
+          File size: {{ (patch_file.stat.size / 1024) | round(2) }} KB
+      when: patch_file.stat.exists

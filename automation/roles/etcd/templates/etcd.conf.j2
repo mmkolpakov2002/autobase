@@ -14,11 +14,16 @@ ETCD_AUTO_COMPACTION_RETENTION="1"
 {% if etcd_tls_enable | default(false) | bool %}
 ETCD_CERT_FILE="{{ etcd_tls_dir | default('/etc/etcd/tls') }}/{{ etcd_tls_server_crt | default('server.crt') }}"
 ETCD_KEY_FILE="{{ etcd_tls_dir | default('/etc/etcd/tls') }}/{{ etcd_tls_server_key | default('server.key') }}"
-ETCD_TRUSTED_CA_FILE="{{ etcd_tls_dir | default('/etc/etcd/tls') }}/{{ etcd_tls_ca_crt | default('ca.crt') }}"
 ETCD_PEER_CERT_FILE="{{ etcd_tls_dir | default('/etc/etcd/tls') }}/{{ etcd_tls_server_crt | default('server.crt') }}"
 ETCD_PEER_KEY_FILE="{{ etcd_tls_dir | default('/etc/etcd/tls') }}/{{ etcd_tls_server_key | default('server.key') }}"
 ETCD_PEER_TRUSTED_CA_FILE="{{ etcd_tls_dir | default('/etc/etcd/tls') }}/{{ etcd_tls_ca_crt | default('ca.crt') }}"
-ETCD_PEER_CLIENT_CERT_AUTH="{{ etcd_peer_client_cert_auth | default("false") }}"
-ETCD_CLIENT_CERT_AUTH="{{ etcd_client_cert_auth | default("false") }}"
+ETCD_PEER_CLIENT_CERT_AUTH="{{ etcd_peer_client_cert_auth | default(false) | bool | to_json }}"
 ETCD_TLS_MIN_VERSION="TLS1.2"
+{# mmkolpakov changes #}
+{% if etcd_client_cert_auth | bool %}
+ETCD_CLIENT_CERT_AUTH="true"
+ETCD_TRUSTED_CA_FILE="{{ etcd_tls_dir | default('/etc/etcd/tls') }}/{{ etcd_tls_ca_crt | default('ca.crt') }}"
+{% else %}
+ETCD_CLIENT_CERT_AUTH="false"
+{% endif %}
 {% endif %}
