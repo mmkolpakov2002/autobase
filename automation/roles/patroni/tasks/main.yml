@@ -13,6 +13,28 @@
   when: patroni_log_destination == 'logfile'
   tags: patroni, patroni_conf
 
+- name: Create PostgreSQL conf directory
+  become: true
+  ansible.builtin.file:
+    path: "{{ postgresql_conf_dir }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0750"
+  when: ansible_os_family == "Debian"
+  tags: patroni, patroni_conf
+
+- name: Create PostgreSQL conf.d directory for includes
+  become: true
+  ansible.builtin.file:
+    path: "{{ postgresql_conf_dir }}/conf.d"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0750"
+  when: ansible_os_family == "Debian"
+  tags: patroni, patroni_conf
+
 - name: Ensure pg_ident.conf file exists to prevent PostgreSQL warnings
   become: true
   ansible.builtin.file:
@@ -228,26 +250,6 @@
     mode: "0750"
   tags: patroni, patroni_conf
 
-# </mmkolpakov_changes>
-- name: Create PostgreSQL conf directory
-  ansible.builtin.file:
-    path: "{{ postgresql_conf_dir }}"
-    state: directory
-    owner: postgres
-    group: postgres
-    mode: "0750"
-  when: ansible_os_family == "Debian"
-  tags: patroni, patroni_conf
-
-- name: Create PostgreSQL conf.d directory for includes
-  ansible.builtin.file:
-    path: "{{ postgresql_conf_dir }}/conf.d"
-    state: directory
-    owner: postgres
-    group: postgres
-    mode: "0750"
-  when: ansible_os_family == "Debian"
-  tags: patroni, patroni_conf
 # </mmkolpakov_changes>
 
 # TLS (etcd)
