@@ -228,7 +228,7 @@
   when: packages_from_file is defined and packages_from_file | length > 0
   tags: install_packages_from_file
 
-# mmkolpakov changes: Pre-create log directory for Patroni before package installation
+# <mmkolpakov_changes: Pre-create log directory for Patroni before package installation>
 - name: Pre-create Patroni log directory
   ansible.builtin.file:
     path: "{{ patroni_log_dir }}"
@@ -238,3 +238,4 @@
     mode: "0750"
   when: patroni_log_destination == 'logfile'
   tags: patroni, patroni_conf
+# </mmkolpakov_changes>

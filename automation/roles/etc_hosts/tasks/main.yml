@@ -1,18 +1,19 @@
 ---
-# mmkolpakov changes
+# <mmkolpakov_changes>
 - name: Add static entries into /etc/hosts file
+  # </mmkolpakov_changes>
   ansible.builtin.lineinfile:
     path: /etc/hosts
     regexp: "^{{ item }}"
     line: "{{ item }}"
-    unsafe_writes: true
+    unsafe_writes: true # to prevent failures in CI
   loop: "{{ etc_hosts }}"
   when:
     - etc_hosts is defined
     - etc_hosts | length > 0
   tags: etc_hosts
 
-# mmkolpakov changes
+# <mmkolpakov_changes>
 - name: Add auto-generated entries for all cluster nodes into /etc/hosts
   ansible.builtin.lineinfile:
     path: /etc/hosts
@@ -21,3 +22,4 @@
   loop: "{{ groups['all'] }}"
   when: etc_hosts_auto_generate | default(false)
   tags: etc_hosts
+# </mmkolpakov_changes>

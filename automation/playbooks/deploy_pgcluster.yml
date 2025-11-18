@@ -30,6 +30,7 @@
   environment: "{{ proxy_env | default({}) }}"
 
   pre_tasks:
+    # <mmkolpakov_changes>
     - name: "Ensure 'postgres' user and group exist on PostgreSQL nodes"
       ansible.builtin.user:
         name: postgres
@@ -39,7 +40,6 @@
       when: "'postgres_cluster' in group_names"
       tags: always
 
-    # mmkolpakov changes
     - name: Ensure apt is not locked
       block:
         - name: Kill any existing apt processes
@@ -59,7 +59,7 @@
             - /var/lib/dpkg/lock-frontend
       when: ansible_os_family == "Debian"
       ignore_errors: true
-
+    # </mmkolpakov_changes>
     - name: Gather package facts
       ansible.builtin.package_facts:
         manager: auto
@@ -229,7 +229,7 @@
   environment: "{{ proxy_env | default({}) }}"
 
   pre_tasks:
-    # mmkolpakov changes
+    # <mmkolpakov_changes>
     - name: Ensure DCS is clean for a new cluster bootstrap
       ansible.builtin.command: >-
         /usr/local/bin/etcdctl del /service/{{ patroni_cluster_name }} --prefix
@@ -247,7 +247,7 @@
         - dcs_type == "etcd"
         - not dcs_exists | bool
         - deploy_clean_dcs_on_bootstrap | default(true) | bool
-
+    # </mmkolpakov_changes>
     - name: Build a firewall_ports_dynamic_var
       ansible.builtin.set_fact:
         firewall_ports_dynamic_var: "{{ firewall_ports_dynamic_var | default([]) + (firewall_allowed_tcp_ports_for[item] | default([])) }}"

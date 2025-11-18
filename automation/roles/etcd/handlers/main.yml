@@ -1,5 +1,5 @@
 ---
-# mmkolpakov changes (new file)
+# <mmkolpakov_changes>
 - name: Restart etcd service
   ansible.builtin.systemd:
     daemon_reload: true
@@ -7,3 +7,4 @@
     state: restarted
     enabled: true
   listen: "restart etcd"
+# </mmkolpakov_changes>

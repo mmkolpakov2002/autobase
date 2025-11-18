@@ -17,13 +17,16 @@ ETCD_KEY_FILE="{{ etcd_tls_dir | default('/etc/etcd/tls') }}/{{ etcd_tls_server_
 ETCD_PEER_CERT_FILE="{{ etcd_tls_dir | default('/etc/etcd/tls') }}/{{ etcd_tls_server_crt | default('server.crt') }}"
 ETCD_PEER_KEY_FILE="{{ etcd_tls_dir | default('/etc/etcd/tls') }}/{{ etcd_tls_server_key | default('server.key') }}"
 ETCD_PEER_TRUSTED_CA_FILE="{{ etcd_tls_dir | default('/etc/etcd/tls') }}/{{ etcd_tls_ca_crt | default('ca.crt') }}"
+{# <mmkolpakov_changes> #}
 ETCD_PEER_CLIENT_CERT_AUTH="{{ etcd_peer_client_cert_auth | default(false) | bool | to_json }}"
+{# </mmkolpakov_changes> #}
 ETCD_TLS_MIN_VERSION="TLS1.2"
-{# mmkolpakov changes #}
+{# <mmkolpakov_changes> #}
 {% if etcd_client_cert_auth | bool %}
 ETCD_CLIENT_CERT_AUTH="true"
 ETCD_TRUSTED_CA_FILE="{{ etcd_tls_dir | default('/etc/etcd/tls') }}/{{ etcd_tls_ca_crt | default('ca.crt') }}"
 {% else %}
 ETCD_CLIENT_CERT_AUTH="false"
 {% endif %}
+{# </mmkolpakov_changes> #}
 {% endif %}

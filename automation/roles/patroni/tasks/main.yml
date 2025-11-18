@@ -2,7 +2,7 @@
 - name: Make sure handlers are flushed immediately
   ansible.builtin.meta: flush_handlers
 
-# mmkolpakov changes
+# <mmkolpakov_changes>
 - name: Create patroni log directory
   ansible.builtin.file:
     path: "{{ patroni_log_dir }}"
@@ -26,6 +26,7 @@
     # If they are defined, Patroni will create and fill in this file itself
     - postgresql_pg_ident is not defined or postgresql_pg_ident | length == 0
   tags: patroni, patroni_conf
+# </mmkolpakov_changes>
 
 # pip install
 - ansible.builtin.import_tasks: pip.yml
@@ -227,7 +228,7 @@
     mode: "0750"
   tags: patroni, patroni_conf
 
-# mmkolpakov changes
+# </mmkolpakov_changes>
 - name: Create PostgreSQL conf directory
   ansible.builtin.file:
     path: "{{ postgresql_conf_dir }}"
@@ -247,6 +248,7 @@
     mode: "0750"
   when: ansible_os_family == "Debian"
   tags: patroni, patroni_conf
+# </mmkolpakov_changes>
 
 # TLS (etcd)
 - name: Copy etcd cert files for patroni
@@ -264,6 +266,7 @@
     - not dcs_exists | bool
   tags: patroni, patroni_conf
 
+# <mmkolpakov_changes>
 - name: Ensure correct ownership for all patroni configuration directories
   become: true
   ansible.builtin.file:
@@ -273,6 +276,7 @@
     group: postgres
     recurse: yes
   tags: patroni, patroni_conf
+# </mmkolpakov_changes>
 
 # TLS (consul)
 - name: Copy consul cert files for patroni
@@ -461,21 +465,22 @@
         owner: postgres
         group: postgres
         recurse: true
-      # mmkolpakov changes
+      # <mmkolpakov_changes>
       when:
         - ansible_os_family == "Debian"
         - "'postgrespro' not in (postgresql_packages | join(' '))"
+      # </mmkolpakov_changes>
 
     - name: Prepare PostgreSQL | make sure PostgreSQL config files exists
       ansible.builtin.stat:
         path: "{{ postgresql_conf_dir }}/postgresql.conf"
       register: postgresql_conf_file
-      # mmkolpakov changes
+      # <mmkolpakov_changes>
       when:
         - ansible_os_family == "Debian"
         - "'postgrespro' not in (postgresql_packages | join(' '))"
+      # </mmkolpakov_changes>
 
-    # mmkolpakov changes
     - name: Prepare PostgreSQL | generate default PostgreSQL config files
       become: true
       become_user: postgres
@@ -887,6 +892,7 @@
     (cluster_scaling is not defined or not cluster_scaling | bool)
   tags: patroni
 
+# <mmkolpakov_changes>
 - name: "Ensure correct permissions for PostgreSQL TLS files"
   become: true
   ansible.builtin.file:
@@ -900,6 +906,7 @@
     - { path: "{{ tls_dir }}/{{ tls_ca_cert }}", mode: '0640' }
   when: tls_cert_generate | bool
   tags: patroni, tls_permissions
+# </mmkolpakov_changes>
 
 - block: # start patroni on master
     - name: Start patroni service on the Master server
@@ -992,6 +999,7 @@
         (('replica' in groups and groups['replica'] | length > 0 and inventory_hostname in groups['replica'] and postgresql_conf_dir != postgresql_data_dir)
         or postgresql_exists | default(false) | bool)
 
+    # <mmkolpakov_changes>
     - name: Prepare PostgreSQL | validate generated pg_hba.conf
       become: true
       become_user: postgres
@@ -1005,6 +1013,7 @@
       register: pg_hba_validate_result
       failed_when: pg_hba_validate_result.query_result | length > 0
       when: inventory_hostname == groups['master'][0]
+      # </mmkolpakov_changes>
 
     - name: Prepare PostgreSQL | reload for apply the pg_hba.conf
       become: true

@@ -16,7 +16,7 @@
       retries: 3
       when: "'python3-cryptography' not in ansible_facts.packages"
 
-    # mmkolpakov changes
+    # <mmkolpakov_changes>
     - name: "TLS | Ensure TLS directory {{ tls_directory }} exists"
       ansible.builtin.file:
         path: "{{ tls_directory }}"
@@ -27,6 +27,7 @@
       vars:
         tls_directory: "{{ generate_tls_dir | default(tls_dir | default('/etc/tls')) }}"
       when: inventory_hostname == (groups[tls_group_name | default('postgres_cluster')][0])
+      # </mmkolpakov_changes>
 
     - block:
         # Check if certificates already exist
@@ -44,7 +45,7 @@
           ansible.builtin.stat:
             path: "{{ tls_directory }}/{{ generate_tls_privatekey | default(tls_privatekey | default('server.key')) }}"
           register: server_key
-        # mmkolpakov changes
+        # <mmkolpakov_changes>
         # Set certificate generation conditions immediately after checking
         - name: Set certificate generation conditions
           ansible.builtin.set_fact:
@@ -57,6 +58,7 @@
           ansible.builtin.set_fact:
             generated_subject_alt_name: ""
       when: inventory_hostname == (groups[tls_group_name | default('master')][0])
+      # </mmkolpakov_changes>
 
     # Clean up existing certificates if tls_cert_regenerate is true
     - name: Clean up existing certificates
@@ -112,23 +114,27 @@
             else 'patroni_bind_address' if (tls_group_name | default('') == 'postgres_cluster' and patroni_bind_address | default('') | length > 0)
             else 'bind_address'
           }}
+      # <mmkolpakov_changes>
       when: tls_subject_alt_name | default('') | length < 1
+      # </mmkolpakov_changes>
 
     - name: "Display Certificate subjectAltName future value"
       ansible.builtin.debug:
+      # <mmkolpakov_changes>
         msg: "SubjectAltName = {{ tls_subject_alt_name | default(generated_subject_alt_name | default('')) }}"
-        # mmkolpakov changes
       when: (tls_subject_alt_name | default(generated_subject_alt_name | default(''))) | length > 0
+      # </mmkolpakov_changes>
 
     ######## Generate CA ########
     - name: "Generate CA private key"
       community.crypto.openssl_privatekey:
         path: "{{ tls_directory }}/{{ generate_tls_ca_key | default(tls_ca_key | default('ca.key')) }}"
         size: "{{ generate_tls_privatekey_size | default(tls_privatekey_size | default(4096)) }}"
+        # <mmkolpakov_changes>
         mode: "0600"
         type: "{{ generate_tls_privatekey_type | default(tls_privatekey_type | default('RSA')) }}"
-        # mmkolpakov changes
       when: need_ca | bool
+        # </mmkolpakov_changes>
 
     - name: "Create CSR for CA certificate"
       community.crypto.openssl_csr_pipe:
@@ -142,8 +148,9 @@
           - keyCertSign
         key_usage_critical: true
       register: ca_csr
-      # mmkolpakov changes
+      # <mmkolpakov_changes>
       when: need_ca | bool
+      # </mmkolpakov_changes>
 
     - name: "Create self-signed CA certificate from CSR"
       community.crypto.x509_certificate:
@@ -153,8 +160,9 @@
         provider: "{{ generate_tls_cert_provider | default(tls_cert_provider | default('selfsigned')) }}"
         selfsigned_not_after: "+{{ generate_tls_cert_valid_days | default(tls_cert_valid_days | default(3650)) }}d"
         selfsigned_not_before: "-1d"
-        # mmkolpakov changes
+      # <mmkolpakov_changes>
       when: need_ca | bool
+      # </mmkolpakov_changes>
 
     ######## Generate Server cert/key ########
     - name: "Create server private key"
@@ -162,8 +170,9 @@
         path: "{{ tls_directory }}/{{ generate_tls_privatekey | default(tls_privatekey | default('server.key')) }}"
         size: "{{ generate_tls_privatekey_size | default(tls_privatekey_size | default(4096)) }}"
         type: "{{ generate_tls_privatekey_type | default(tls_privatekey_type | default('RSA')) }}"
-        # mmkolpakov changes
+      # <mmkolpakov_changes>
       when: need_srv_key | bool
+      # </mmkolpakov_changes>
 
     - name: "Create server CSR"
       community.crypto.openssl_csr_pipe:
@@ -178,10 +187,11 @@
           - serverAuth
         subject:
           O: "Autobase"
-          # mmkolpakov changes
+      # <mmkolpakov_changes>
         subject_alt_name: "{{ tls_subject_alt_name | default(generated_subject_alt_name | default('')) }}"
       register: csr
       when: need_srv_cert | bool
+      # </mmkolpakov_changes>
 
     - name: "Sign server certificate with the CA"
       community.crypto.x509_certificate_pipe:
@@ -192,13 +202,15 @@
         ownca_not_after: +{{ generate_tls_cert_valid_days | default(tls_cert_valid_days | default(3650)) }}d
         ownca_not_before: "-1d"
       register: certificate
-      # mmkolpakov changes
+      # <mmkolpakov_changes>
       when: need_srv_cert | bool
+      # </mmkolpakov_changes>
 
     - name: "Write server certificate"
       ansible.builtin.copy:
         dest: "{{ tls_directory }}/{{ generate_tls_cert | default(tls_cert | default('server.crt')) }}"
         content: "{{ certificate.certificate }}"
+# <mmkolpakov_changes>
         owner: "{{ generate_tls_owner | default(tls_owner | default('postgres')) }}"
         group: "{{ generate_tls_group | default(tls_group | default('postgres')) }}"
         mode: "0644"
@@ -208,4 +220,5 @@
   when:
     - inventory_hostname == (groups[tls_group_name | default('postgres_cluster')][0])
     - (need_ca or need_srv_key or need_srv_cert) | bool
+# </mmkolpakov_changes>
   tags: tls, tls_cert_generate

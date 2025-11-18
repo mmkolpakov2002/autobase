@@ -14,10 +14,14 @@ nodes = [
 {% if etcd_tls_enable | default(false) | bool %}
 scheme = "https"
 client_cakeys = "{{ confd_etcd_tls_dir | default('/etc/confd/tls/etcd') }}/{{ confd_etcd_client_cakey | default('ca.crt') }}"
+{# <mmkolpakov_changes> #}
 {% if etcd_client_cert_auth | default(false) | bool %}
+{# </mmkolpakov_changes> #}
 client_cert = "{{ confd_etcd_tls_dir | default('/etc/confd/tls/etcd') }}/{{ confd_etcd_client_cert | default('server.crt') }}"
 client_key = "{{ confd_etcd_tls_dir | default('/etc/confd/tls/etcd') }}/{{ confd_etcd_client_key | default('server.key') }}"
+{# <mmkolpakov_changes> #}
 {% endif %}
+{# </mmkolpakov_changes> #}
 {% endif %}
 {% if patroni_etcd_username | default('') | length > 0 %}
 basic_auth = true
