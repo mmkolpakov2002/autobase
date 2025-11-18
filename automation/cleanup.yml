@@ -83,17 +83,7 @@
       when: ansible_os_family == "RedHat"
       ignore_errors: true
 
-    - name: "4.1. Сбросить правила iptables"
-      ansible.builtin.command: "{{ item }}"
-      loop:
-        - "iptables -F"
-        - "iptables -X"
-        - "iptables -t nat -F"
-        - "iptables -t nat -X"
-      changed_when: false
-      ignore_errors: true
-
-    - name: "4.2. Удалить кастомные systemd юниты и скрипты"
+    - name: "4.1. Удалить кастомные systemd юниты и скрипты"
       ansible.builtin.file:
         path: "{{ item }}"
         state: absent
@@ -106,12 +96,12 @@
         - /etc/firewall.bash
       ignore_errors: true
 
-    - name: "4.3. Перезагрузить конфигурацию systemd"
+    - name: "4.2. Перезагрузить конфигурацию systemd"
       ansible.builtin.systemd:
         daemon_reload: yes
       ignore_errors: true
 
-    - name: "4.4. Удалить бинарные файлы, установленные вручную"
+    - name: "4.3. Удалить бинарные файлы, установленные вручную"
       ansible.builtin.file:
         path: "/usr/local/bin/{{ item }}"
         state: absent
@@ -122,7 +112,7 @@
         - confd
       ignore_errors: true
 
-    - name: "4.5. Удалить все конфигурационные файлы, данные и логи"
+    - name: "4.4. Удалить все конфигурационные файлы, данные и логи"
       ansible.builtin.file:
         path: "{{ item }}"
         state: absent

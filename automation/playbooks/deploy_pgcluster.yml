@@ -48,6 +48,11 @@
           failed_when: "pkill_apt.rc not in [0, 1]"
           changed_when: pkill_apt.rc == 0
 
+        - name: Configure dpkg if it was interrupted
+          ansible.builtin.command: dpkg --configure -a
+          changed_when: false
+          ignore_errors: true
+
         - name: Remove apt lock files
           ansible.builtin.file:
             path: "{{ item }}"

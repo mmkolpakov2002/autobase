@@ -18,7 +18,7 @@
   ansible.builtin.lineinfile:
     path: /etc/hosts
     regexp: ".*{{ hostvars[item].inventory_hostname }}$"
-    line: "{{ hostvars[item].ansible_host | default(hostvars[item].bind_address) }} {{ hostvars[item].inventory_hostname }}"
+    line: "{{ hostvars[item].bind_address }} {{ hostvars[item].inventory_hostname }}"
   loop: "{{ groups['all'] }}"
   when: etc_hosts_auto_generate | default(false)
   tags: etc_hosts
