@@ -1,0 +1,6 @@
+apiVersion: v2
+name: mfti-api
+description: API for MFTI Course
+type: application
+version: 0.1.0
+appVersion: "latest"

@@ -1,0 +1,46 @@
+---
+- name: "Undeploy: K8s Cleanup (Local)"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    k8s_namespace: "sre-cource-student-7"
+    release_name: "mfti-api"
+  tasks:
+    - name: "K8s | Uninstall Helm Release"
+      ansible.builtin.command: "helm uninstall {{ release_name }} --namespace {{ k8s_namespace }}"
+      failed_when: false
+
+    - name: "K8s | Delete Application Resources"
+      ansible.builtin.shell: >
+        kubectl delete deployment,service,ingress,configmap,pvc --all -n {{ k8s_namespace }} --ignore-not-found
+      failed_when: false
+
+    - name: "K8s | Delete App Secret explicitly"
+      ansible.builtin.command: "kubectl delete secret {{ release_name }}-db-secret -n {{ k8s_namespace }} --ignore-not-found"
+      failed_when: false
+
+    - name: "Cleanup | Remove local artifacts"
+      ansible.builtin.file:
+        path: /tmp/k8s_manifest.yaml
+        state: absent
+
+- name: "Undeploy: Database Cleanup (On Master)"
+  hosts: master
+  become: true
+  gather_facts: false
+  vars:
+    app_db_name: "api_db"
+    app_db_user: "api_user"
+  tasks:
+    - name: "DB | Forcibly disconnecting clients and deleting databases"
+      ansible.builtin.shell: |
+        sudo -u postgres psql -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{{ app_db_name }}' AND pid <> pg_backend_pid();"
+        sudo -u postgres psql -c "DROP DATABASE IF EXISTS {{ app_db_name }};"
+        sudo -u postgres psql -c "DROP USER IF EXISTS {{ app_db_user }};"
+      register: db_cleanup
+      changed_when: "'DROP' in db_cleanup.stdout"
+
+    - name: "Final | Info"
+      ansible.builtin.debug:
+        msg: "Application undeployed and namespace cleaned."

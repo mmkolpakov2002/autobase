@@ -1,0 +1,203 @@
+---
+# ==============================================================================
+# ЭТАП 1: Настройка БД (На Master)
+# ==============================================================================
+- name: "Stage 1: Prepare Database on Master Node"
+  hosts: master
+  become: true
+  gather_facts: false
+  vars:
+    app_db_name: "api_db"
+    app_db_user: "api_user"
+    app_db_pass: "ApiPassword123!"
+
+  tasks:
+    - name: "DB | Check/Creating a user and database (via Shell)"
+      ansible.builtin.shell: |
+        # 1. Создаем пользователя
+        sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='{{ app_db_user }}'" | grep -q 1 || \
+        sudo -u postgres psql -c "CREATE USER {{ app_db_user }} WITH PASSWORD '{{ app_db_pass }}';"
+
+        # 2. Создаем БД
+        sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='{{ app_db_name }}'" | grep -q 1 || \
+        sudo -u postgres psql -c "CREATE DATABASE {{ app_db_name }} OWNER {{ app_db_user }};"
+      register: db_setup_cmd
+      changed_when: "'CREATE' in db_setup_cmd.stdout"
+
+# ==============================================================================
+# ЭТАП 2: Подготовка файлов
+# ==============================================================================
+- name: "Stage 2: Extract Migration (Local)"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    app_image: "ghcr.io/ldest/mfti-course/api:latest"
+
+  tasks:
+    - name: "Migration | Pull docker image"
+      ansible.builtin.command: "docker pull {{ app_image }}"
+      changed_when: false
+
+    - name: "Migration | Create temporary container"
+      ansible.builtin.command: "docker create --name temp_migration_extractor {{ app_image }}"
+      changed_when: true
+      ignore_errors: true
+
+    - name: "Migration | Find migration file inside image"
+      ansible.builtin.shell: "docker export temp_migration_extractor | tar -t | grep -m 1 '\\.sql$'"
+      register: migration_file_path
+      failed_when: migration_file_path.stdout == ""
+
+    - name: "Migration | Copy migration file to host /tmp/app_migration.sql"
+      ansible.builtin.command: "docker cp temp_migration_extractor:/{{ migration_file_path.stdout }} /tmp/app_migration.sql"
+
+    - name: "Migration | Remove temporary container"
+      ansible.builtin.command: "docker rm -f temp_migration_extractor"
+      changed_when: true
+
+# ==============================================================================
+# ЭТАП 3: Применение миграции (С сервера Balancer)
+# ==============================================================================
+- name: "Stage 3: Apply Migration from Balancer Node"
+  hosts: balancers
+  become: true
+  gather_facts: true
+  vars:
+    app_db_name: "api_db"
+    app_db_user: "api_user"
+    app_db_pass: "ApiPassword123!"
+
+  tasks:
+    - name: "Install | Installing the postgresql client"
+      ansible.builtin.apt:
+        name: postgresql-client
+        state: present
+        update_cache: true
+      ignore_errors: true
+
+    - name: "Deploy | Copying the migration file to Balancer"
+      ansible.builtin.copy:
+        src: /tmp/app_migration.sql
+        dest: /tmp/app_migration.sql
+        mode: '0644'
+
+    - name: "Deploy | Rolling migration via HAProxy"
+      ansible.builtin.shell: >
+        PGPASSWORD='{{ app_db_pass }}'
+        psql -h {{ ansible_default_ipv4.address }} -p 5000 -U {{ app_db_user }} -d {{ app_db_name }} -f /tmp/app_migration.sql
+      register: migration_result
+      failed_when: migration_result.rc != 0
+
+# ==============================================================================
+# ЭТАП 4: Деплой в K8s
+# ==============================================================================
+- name: "Stage 4: Deploy to Kubernetes"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    app_db_name: "api_db"
+    app_db_user: "api_user"
+    app_db_pass: "ApiPassword123!"
+    k8s_namespace: "sre-cource-student-7"
+    helm_chart_path: "{{ playbook_dir }}/helm/mfti-api"
+    k8s_db_host: "192.168.1.46"
+    ingress_host: "student-7.local"
+
+  tasks:
+    - name: "K8s | Ensure Namespace exists"
+      ansible.builtin.command: "kubectl create namespace {{ k8s_namespace }}"
+      register: ns_create
+      failed_when: false
+      changed_when: ns_create.rc == 0
+
+    - name: "K8s | Generate Manifests to file"
+      ansible.builtin.shell: >
+        helm template mfti-api {{ helm_chart_path }}
+        --namespace {{ k8s_namespace }}
+        --set db.host={{ k8s_db_host }}
+        --set db.user={{ app_db_user }}
+        --set db.name={{ app_db_name }}
+        --set-string db.port=5000
+        --set db.password={{ app_db_pass }}
+        --set ingress.host={{ ingress_host }}
+        > /tmp/k8s_manifest.yaml
+
+    - name: "K8s | Delete existing resources"
+      ansible.builtin.command: "kubectl delete --ignore-not-found=true -f /tmp/k8s_manifest.yaml -n {{ k8s_namespace }}"
+      register: kubectl_delete
+      failed_when: false
+
+    - name: "K8s | Wait for deletion cleanup"
+      ansible.builtin.pause:
+        seconds: 5
+
+    - name: "K8s | Create resources"
+      ansible.builtin.command: "kubectl create -f /tmp/k8s_manifest.yaml -n {{ k8s_namespace }} --validate=false"
+
+    - name: "K8s | Cleanup temp manifest file"
+      ansible.builtin.file:
+        path: /tmp/k8s_manifest.yaml
+        state: absent
+
+    - block:
+        - name: "K8s | Wait for Deployment Rollout"
+          ansible.builtin.command: >
+            kubectl rollout status deployment/mfti-api
+            --namespace {{ k8s_namespace }}
+            --timeout=120s
+          register: rollout_status
+          changed_when: false
+
+      rescue:
+        - name: "DEBUG | Get Events"
+          ansible.builtin.command: "kubectl get events -n {{ k8s_namespace }} --sort-by='.lastTimestamp'"
+          register: debug_events
+          changed_when: false
+
+        - name: "DEBUG | Print Events"
+          ansible.builtin.debug:
+            var: debug_events.stdout_lines
+
+        - name: "Final | Fail Playbook"
+          ansible.builtin.fail:
+            msg: "Deployment failed. Check events above."
+
+    - name: "Cleanup | Remove local migration file"
+      ansible.builtin.file:
+        path: /tmp/app_migration.sql
+        state: absent
+      delegate_to: localhost
+      ignore_errors: true
+
+    - name: "Cleanup | Remove migration file on Balancer"
+      ansible.builtin.file:
+        path: /tmp/app_migration.sql
+        state: absent
+      delegate_to: "{{ groups['balancers'][0] }}"
+      become: true
+      ignore_errors: true
+      vars:
+        ansible_python_interpreter: /usr/bin/python3
+
+    - name: "Test | In-Cluster Health Check"
+      ansible.builtin.command: >
+        kubectl run test-smoke-{{ lookup('pipe', 'date +%s') }}
+        --namespace {{ k8s_namespace }}
+        --image=busybox
+        --restart=Never
+        --rm -i
+        --overrides='{"spec": {"containers": [{"name": "test", "image": "busybox", "resources": {"limits": {"cpu": "50m", "memory": "64Mi"}, "requests": {"cpu": "10m", "memory": "32Mi"}}}]}}'
+        --
+        wget -q -O - http://mfti-api:80/health
+      register: smoke_test
+      changed_when: false
+      ignore_errors: true
+
+    - name: "Final | Status"
+      ansible.builtin.debug:
+        msg:
+          - "Deployment Status: SUCCESS"
+          - "In-Cluster Smoke Test: {{ 'PASSED' if (smoke_test is defined and smoke_test.rc == 0) else 'FAILED (' + (smoke_test.stderr | default('Unknown error')) + ')' }}"
+          - "External Access (Ingress): Host '{{ ingress_host }}' configured."
