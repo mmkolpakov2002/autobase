@@ -23,22 +23,16 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           env:
-            - name: DB_HOST
-              value: {{ .Values.db.host | quote }}
-            - name: DB_PORT
-              value: {{ .Values.db.port | quote }}
-            - name: DB_NAME
-              value: {{ .Values.db.name | quote }}
-            - name: DB_USER
-              value: {{ .Values.db.user | quote }}
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ .Release.Name }}-db-secret
                   key: password
+            - name: ConnectionStrings__PgConnection
+              value: "Server={{ .Values.db.host }};Port={{ .Values.db.port }};Database={{ .Values.db.name }};User Id={{ .Values.db.user }};Password=$(DB_PASSWORD);"
           livenessProbe:
-            httpGet:
-              path: /health
+            tcpSocket:
               port: {{ .Values.service.port }}
-            initialDelaySeconds: 10
-            periodSeconds: 15
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
