@@ -1,0 +1,71 @@
+# <mmkolpakov_changes_dz_2>
+---
+- name: Create blackbox_exporter group
+  ansible.builtin.group:
+    name: blackbox_exporter
+    state: present
+
+- name: Create blackbox_exporter user
+  ansible.builtin.user:
+    name: blackbox_exporter
+    group: blackbox_exporter
+    shell: /sbin/nologin
+    system: true
+
+- name: Create config directory
+  ansible.builtin.file:
+    path: /etc/blackbox_exporter
+    state: directory
+    owner: blackbox_exporter
+    group: blackbox_exporter
+    mode: '0755'
+
+- name: Download Blackbox Exporter binary (Local)
+  delegate_to: localhost
+  run_once: true
+  become: false
+  ansible.builtin.get_url:
+    url: "https://github.com/prometheus/blackbox_exporter/releases/download/v{{ blackbox_exporter_version }}/blackbox_exporter-{{ blackbox_exporter_version }}.linux-amd64.tar.gz"
+    dest: "/tmp/blackbox_exporter-{{ blackbox_exporter_version }}.linux-amd64.tar.gz"
+    mode: '0644'
+
+- name: Unarchive Blackbox Exporter (Local)
+  delegate_to: localhost
+  run_once: true
+  become: false
+  ansible.builtin.unarchive:
+    src: "/tmp/blackbox_exporter-{{ blackbox_exporter_version }}.linux-amd64.tar.gz"
+    dest: "/tmp/"
+    remote_src: true
+
+- name: Copy Blackbox Exporter binary to target
+  ansible.builtin.copy:
+    src: "/tmp/blackbox_exporter-{{ blackbox_exporter_version }}.linux-amd64/blackbox_exporter"
+    dest: "/usr/local/bin/blackbox_exporter"
+    mode: '0755'
+    owner: blackbox_exporter
+    group: blackbox_exporter
+  notify: restart blackbox_exporter
+
+- name: Configure Blackbox Exporter
+  ansible.builtin.template:
+    src: blackbox.yml.j2
+    dest: /etc/blackbox_exporter/blackbox.yml
+    owner: blackbox_exporter
+    group: blackbox_exporter
+  notify: restart blackbox_exporter
+
+- name: Create systemd service for Blackbox Exporter
+  ansible.builtin.template:
+    src: blackbox_exporter.service.j2
+    dest: /etc/systemd/system/blackbox_exporter.service
+    mode: '0644'
+  notify: restart blackbox_exporter
+
+- name: Enable and start Blackbox Exporter
+  ansible.builtin.systemd:
+    name: blackbox_exporter
+    state: started
+    enabled: true
+    daemon_reload: true
+# </mmkolpakov_changes_dz_2>

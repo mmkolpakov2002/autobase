@@ -1,0 +1,8 @@
+# <mmkolpakov_changes_dz_2>
+---
+- name: restart postgres_exporter
+  ansible.builtin.systemd:
+    name: postgres_exporter
+    state: restarted
+    daemon_reload: true
+# </mmkolpakov_changes_dz_2>

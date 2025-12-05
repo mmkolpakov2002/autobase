@@ -1,0 +1,14 @@
+# <mmkolpakov_changes_dz_2>
+modules:
+  http_2xx:
+    prober: http
+    timeout: 5s
+    http:
+      valid_status_codes: [200, 404]
+      method: GET
+      headers:
+        Host: student-7.local
+      no_follow_redirects: false
+      fail_if_ssl: false
+      fail_if_not_ssl: false
+# </mmkolpakov_changes_dz_2>

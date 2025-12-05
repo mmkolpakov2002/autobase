@@ -1,0 +1,89 @@
+# <mmkolpakov_changes_dz_2>
+---
+- name: Create alertmanager group
+  ansible.builtin.group:
+    name: alertmanager
+    state: present
+
+- name: Create alertmanager user
+  ansible.builtin.user:
+    name: alertmanager
+    group: alertmanager
+    shell: /sbin/nologin
+    system: true
+    create_home: false
+
+- name: Create alertmanager directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: alertmanager
+    group: alertmanager
+    mode: '0755'
+  loop:
+    - /etc/alertmanager
+    - /var/lib/alertmanager
+
+- name: Download Alertmanager binary (Local)
+  delegate_to: localhost
+  run_once: true
+  become: false
+  ansible.builtin.get_url:
+    url: "https://github.com/prometheus/alertmanager/releases/download/v0.29.0/alertmanager-0.29.0.linux-amd64.tar.gz"
+    dest: "/tmp/alertmanager-0.29.0.linux-amd64.tar.gz"
+    mode: '0644'
+
+- name: Unarchive Alertmanager (Local)
+  delegate_to: localhost
+  run_once: true
+  become: false
+  ansible.builtin.unarchive:
+    src: "/tmp/alertmanager-0.29.0.linux-amd64.tar.gz"
+    dest: "/tmp/"
+    remote_src: true
+    mode: '0755'
+
+- name: Copy Alertmanager binary to target
+  ansible.builtin.copy:
+    src: "/tmp/alertmanager-0.29.0.linux-amd64/alertmanager"
+    dest: "/usr/local/bin/alertmanager"
+    mode: '0755'
+    owner: alertmanager
+    group: alertmanager
+  notify: restart alertmanager
+
+- name: Configure Alertmanager (alertmanager.yml)
+  ansible.builtin.copy:
+    dest: /etc/alertmanager/alertmanager.yml
+    content: |
+      global:
+        resolve_timeout: 5m
+      route:
+        group_by: ['alertname']
+        group_wait: 10s
+        group_interval: 10s
+        repeat_interval: 1h
+        receiver: 'web.hook'
+      receivers:
+        - name: 'web.hook'
+          webhook_configs:
+            - url: 'http://127.0.0.1:5001/'
+    mode: '0644'
+    owner: alertmanager
+    group: alertmanager
+  notify: reload alertmanager
+
+- name: Create systemd service for Alertmanager
+  ansible.builtin.template:
+    src: alertmanager.service.j2
+    dest: /etc/systemd/system/alertmanager.service
+    mode: '0644'
+  notify: restart alertmanager
+
+- name: Enable and start Alertmanager
+  ansible.builtin.systemd:
+    name: alertmanager
+    state: started
+    enabled: true
+    daemon_reload: true
+# </mmkolpakov_changes_dz_2>

@@ -1,0 +1,64 @@
+# <mmkolpakov_changes_dz_2>
+---
+- name: Create postgres_exporter group
+  ansible.builtin.group:
+    name: postgres_exporter
+    state: present
+
+- name: Create postgres_exporter user
+  ansible.builtin.user:
+    name: postgres_exporter
+    group: postgres_exporter
+    shell: /sbin/nologin
+    system: true
+
+- name: Download Postgres Exporter binary (Local)
+  delegate_to: localhost
+  run_once: true
+  become: false
+  ansible.builtin.get_url:
+    url: "https://github.com/prometheus-community/postgres_exporter/releases/download/v{{ postgres_exporter_version }}/postgres_exporter-{{ postgres_exporter_version }}.linux-amd64.tar.gz"
+    dest: "/tmp/postgres_exporter-{{ postgres_exporter_version }}.linux-amd64.tar.gz"
+    mode: '0644'
+
+- name: Unarchive Postgres Exporter (Local)
+  delegate_to: localhost
+  run_once: true
+  become: false
+  ansible.builtin.unarchive:
+    src: "/tmp/postgres_exporter-{{ postgres_exporter_version }}.linux-amd64.tar.gz"
+    dest: "/tmp/"
+    remote_src: true
+
+- name: Copy Postgres Exporter binary to target
+  ansible.builtin.copy:
+    src: "/tmp/postgres_exporter-{{ postgres_exporter_version }}.linux-amd64/postgres_exporter"
+    dest: "/usr/local/bin/postgres_exporter"
+    mode: '0755'
+    owner: postgres_exporter
+    group: postgres_exporter
+  notify: restart postgres_exporter
+
+- name: Create environment file for Postgres Exporter
+  ansible.builtin.template:
+    src: postgres_exporter.env.j2
+    dest: /etc/default/postgres_exporter
+    mode: '0600'
+    owner: postgres_exporter
+    group: postgres_exporter
+  notify: restart postgres_exporter
+
+- name: Create systemd service for Postgres Exporter
+  ansible.builtin.template:
+    src: postgres_exporter.service.j2
+    dest: /etc/systemd/system/postgres_exporter.service
+    mode: '0644'
+  notify: restart postgres_exporter
+
+- name: Enable and start Postgres Exporter
+  ansible.builtin.systemd:
+    name: postgres_exporter
+    state: started
+    enabled: true
+    daemon_reload: true
+# </mmkolpakov_changes_dz_2>

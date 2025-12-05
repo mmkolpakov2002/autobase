@@ -1,0 +1,90 @@
+# <mmkolpakov_changes_dz_2>
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - localhost:9093
+
+rule_files:
+  - "alert.rules.yml"
+
+scrape_configs:
+  # 1. Prometheus
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # 2. Node Exporter
+  - job_name: 'node'
+    static_configs:
+      - targets:
+{% for host in groups['all'] %}
+{% if hostvars[host]['bind_address'] is defined %}
+        - '{{ hostvars[host]['bind_address'] }}:9100'
+{% endif %}
+{% endfor %}
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: '([^:]+):\d+'
+        target_label: instance
+
+  # 3. Postgres Exporter
+  - job_name: 'postgres'
+    static_configs:
+      - targets:
+{% for host in groups['postgres_cluster'] %}
+{% if hostvars[host]['bind_address'] is defined %}
+        - '{{ hostvars[host]['bind_address'] }}:9187'
+{% endif %}
+{% endfor %}
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: '([^:]+):\d+'
+        target_label: instance
+
+  # 4. Patroni (FIXED HTTPS)
+  - job_name: 'patroni'
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
+    static_configs:
+      - targets:
+{% for host in groups['postgres_cluster'] %}
+{% if hostvars[host]['bind_address'] is defined %}
+        - '{{ hostvars[host]['bind_address'] }}:8008'
+{% endif %}
+{% endfor %}
+
+  # 5. Etcd
+  - job_name: 'etcd'
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
+    static_configs:
+      - targets:
+{% for host in groups['etcd_cluster'] %}
+{% if hostvars[host]['bind_address'] is defined %}
+        - '{{ hostvars[host]['bind_address'] }}:2379'
+{% endif %}
+{% endfor %}
+
+  # 6. Blackbox
+  - job_name: 'blackbox_api'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+        - http://192.168.1.100:80/swagger/index.html
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: 127.0.0.1:9115
+# </mmkolpakov_changes_dz_2>

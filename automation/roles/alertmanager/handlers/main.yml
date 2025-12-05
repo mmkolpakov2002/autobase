@@ -1,0 +1,14 @@
+# <mmkolpakov_changes_dz_2>
+---
+- name: restart alertmanager
+  ansible.builtin.systemd:
+    name: alertmanager
+    state: restarted
+    daemon_reload: true
+
+- name: reload alertmanager
+  ansible.builtin.systemd:
+    name: alertmanager
+    state: restarted
+    daemon_reload: true
+# </mmkolpakov_changes_dz_2>

@@ -1,0 +1,7 @@
+# <mmkolpakov_changes_dz_2>
+---
+- name: restart grafana
+  ansible.builtin.systemd:
+    name: grafana-server
+    state: restarted
+# </mmkolpakov_changes_dz_2>

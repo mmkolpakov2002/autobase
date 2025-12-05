@@ -1,0 +1,15 @@
+# <mmkolpakov_changes_dz_2>
+[Unit]
+Description=Blackbox Exporter
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=blackbox_exporter
+Group=blackbox_exporter
+Type=simple
+ExecStart=/usr/local/bin/blackbox_exporter --config.file=/etc/blackbox_exporter/blackbox.yml
+
+[Install]
+WantedBy=multi-user.target
+# </mmkolpakov_changes_dz_2>

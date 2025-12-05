@@ -1,0 +1,29 @@
+# <mmkolpakov_changes_dz_2>
+---
+- name: Deploy Monitoring Stack
+  hosts: all
+  become: true
+  gather_facts: true
+  pre_tasks:
+    - name: Define bind_address
+      ansible.builtin.include_role:
+        name: vitabaks.autobase.bind_address
+
+  roles:
+    - role: node_exporter
+
+- name: Deploy Postgres Exporter
+  hosts: postgres_cluster
+  become: true
+  roles:
+    - role: postgres_exporter
+
+- name: Deploy Monitoring Server (Prometheus + Alertmanager + Blackbox + Grafana)
+  hosts: monitoring_server
+  become: true
+  roles:
+    - role: blackbox_exporter
+    - role: alertmanager
+    - role: prometheus
+    - role: grafana
+# </mmkolpakov_changes_dz_2>

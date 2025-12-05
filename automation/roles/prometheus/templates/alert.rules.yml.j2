@@ -1,0 +1,43 @@
+# <mmkolpakov_changes_dz_2>
+{% raw %}
+groups:
+  - name: GoldenSignals
+    rules:
+      # 1. High Latency (Latency)
+      - alert: HighRequestLatency
+        expr: rate(http_request_duration_seconds_sum[5m]) / rate(http_request_duration_seconds_count[5m]) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High request latency on {{ $labels.instance }}"
+
+      # 2. High Error Rate (Errors)
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High error rate on {{ $labels.instance }}"
+
+      # 3. Saturation (CPU/Disk)
+      - alert: HostHighCpuLoad
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[2m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU load on {{ $labels.instance }}"
+
+  - name: Postgres
+    rules:
+      - alert: PostgresDown
+        expr: pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Postgres is down on {{ $labels.instance }}"
+{% endraw %}
+# </mmkolpakov_changes_dz_2>

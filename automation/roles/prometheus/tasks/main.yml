@@ -1,0 +1,91 @@
+# <mmkolpakov_changes_dz_2>
+---
+- name: Create prometheus group
+  ansible.builtin.group:
+    name: prometheus
+    state: present
+
+- name: Create prometheus user
+  ansible.builtin.user:
+    name: prometheus
+    group: prometheus
+    shell: /sbin/nologin
+    system: true
+    create_home: false
+
+- name: Create prometheus directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: prometheus
+    group: prometheus
+    mode: '0755'
+  loop:
+    - /etc/prometheus
+    - /var/lib/prometheus
+    - /etc/prometheus/consoles
+    - /etc/prometheus/console_libraries
+
+- name: Download Prometheus binary (Local)
+  delegate_to: localhost
+  run_once: true
+  become: false
+  ansible.builtin.get_url:
+    url: "https://github.com/prometheus/prometheus/releases/download/v{{ prometheus_version }}/prometheus-{{ prometheus_version }}.linux-amd64.tar.gz"
+    dest: "/tmp/prometheus-{{ prometheus_version }}.linux-amd64.tar.gz"
+    mode: '0644'
+
+- name: Unarchive Prometheus (Local)
+  delegate_to: localhost
+  run_once: true
+  become: false
+  ansible.builtin.unarchive:
+    src: "/tmp/prometheus-{{ prometheus_version }}.linux-amd64.tar.gz"
+    dest: "/tmp/"
+    remote_src: true
+    mode: '0755'
+
+- name: Copy Prometheus binaries to target
+  ansible.builtin.copy:
+    src: "/tmp/prometheus-{{ prometheus_version }}.linux-amd64/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    mode: '0755'
+    owner: prometheus
+    group: prometheus
+  loop:
+    - prometheus
+    - promtool
+  notify: restart prometheus
+
+- name: Configure Prometheus (prometheus.yml)
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: /etc/prometheus/prometheus.yml
+    mode: '0644'
+    owner: prometheus
+    group: prometheus
+  notify: reload prometheus
+
+- name: Configure Alert Rules (alert.rules.yml)
+  ansible.builtin.template:
+    src: alert.rules.yml.j2
+    dest: /etc/prometheus/alert.rules.yml
+    mode: '0644'
+    owner: prometheus
+    group: prometheus
+  notify: reload prometheus
+
+- name: Create systemd service for Prometheus
+  ansible.builtin.template:
+    src: prometheus.service.j2
+    dest: /etc/systemd/system/prometheus.service
+    mode: '0644'
+  notify: restart prometheus
+
+- name: Enable and start Prometheus
+  ansible.builtin.systemd:
+    name: prometheus
+    state: started
+    enabled: true
+    daemon_reload: true
+# </mmkolpakov_changes_dz_2>

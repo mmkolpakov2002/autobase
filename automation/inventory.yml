@@ -34,3 +34,9 @@ all:
     replica:
       hosts:
         bd2:
+    # <mmkolpakov_changes_dz_2>
+    # Группа для сервера мониторинга (Prometheus + Grafana + Blackbox)
+    monitoring_server:
+      hosts:
+        balancer:
+    # </mmkolpakov_changes_dz_2>

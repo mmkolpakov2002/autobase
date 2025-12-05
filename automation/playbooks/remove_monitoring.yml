@@ -1,0 +1,146 @@
+# <mmkolpakov_changes_dz_2>
+---
+- name: Remove Monitoring Stack
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Stop and disable Node Exporter
+      ansible.builtin.systemd:
+        name: node_exporter
+        state: stopped
+        enabled: false
+      ignore_errors: true
+
+    - name: Remove Node Exporter artifacts
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/systemd/system/node_exporter.service
+        - /usr/local/bin/node_exporter
+        - /tmp/node_exporter*
+
+    - name: Remove node_exporter user
+      ansible.builtin.user:
+        name: node_exporter
+        state: absent
+        remove: yes
+      ignore_errors: true
+
+- name: Remove Postgres Exporter
+  hosts: postgres_cluster
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Stop and disable Postgres Exporter
+      ansible.builtin.systemd:
+        name: postgres_exporter
+        state: stopped
+        enabled: false
+      ignore_errors: true
+
+    - name: Remove Postgres Exporter artifacts
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/systemd/system/postgres_exporter.service
+        - /etc/default/postgres_exporter
+        - /usr/local/bin/postgres_exporter
+        - /tmp/postgres_exporter*
+
+    - name: Remove postgres_exporter user
+      ansible.builtin.user:
+        name: postgres_exporter
+        state: absent
+        remove: yes
+      ignore_errors: true
+
+- name: Remove Monitoring Server Components
+  hosts: monitoring_server
+  become: true
+  gather_facts: false
+  tasks:
+    # Prometheus
+    - name: Stop and disable Prometheus
+      ansible.builtin.systemd:
+        name: prometheus
+        state: stopped
+        enabled: false
+      ignore_errors: true
+
+    - name: Remove Prometheus artifacts
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/systemd/system/prometheus.service
+        - /usr/local/bin/prometheus
+        - /usr/local/bin/promtool
+        - /etc/prometheus
+        - /var/lib/prometheus
+        - /tmp/prometheus*
+
+    - name: Remove prometheus user
+      ansible.builtin.user:
+        name: prometheus
+        state: absent
+        remove: yes
+      ignore_errors: true
+
+    # Alertmanager
+    - name: Stop and disable Alertmanager
+      ansible.builtin.systemd:
+        name: alertmanager
+        state: stopped
+        enabled: false
+      ignore_errors: true
+
+    - name: Remove Alertmanager artifacts
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/systemd/system/alertmanager.service
+        - /usr/local/bin/alertmanager
+        - /etc/alertmanager
+        - /var/lib/alertmanager
+        - /tmp/alertmanager*
+
+    - name: Remove alertmanager user
+      ansible.builtin.user:
+        name: alertmanager
+        state: absent
+        remove: yes
+      ignore_errors: true
+
+    # Blackbox Exporter
+    - name: Stop and disable Blackbox Exporter
+      ansible.builtin.systemd:
+        name: blackbox_exporter
+        state: stopped
+        enabled: false
+      ignore_errors: true
+
+    - name: Remove Blackbox Exporter artifacts
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/systemd/system/blackbox_exporter.service
+        - /usr/local/bin/blackbox_exporter
+        - /etc/blackbox_exporter
+        - /tmp/blackbox_exporter*
+
+    - name: Remove blackbox_exporter user
+      ansible.builtin.user:
+        name: blackbox_exporter
+        state: absent
+        remove: yes
+      ignore_errors: true
+
+    - name: Reload systemd daemon
+      ansible.builtin.systemd:
+        daemon_reload: true
+# </mmkolpakov_changes_dz_2>

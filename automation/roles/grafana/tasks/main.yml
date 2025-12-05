@@ -1,0 +1,49 @@
+# <mmkolpakov_changes_dz_2>
+---
+- name: Download Grafana .deb
+  delegate_to: localhost
+  run_once: true
+  become: false
+  ansible.builtin.get_url:
+    url: "https://dl.grafana.com/oss/release/grafana_12.3.0_amd64.deb"
+    dest: "/tmp/grafana_12.3.0_amd64.deb"
+    mode: '0644'
+
+- name: Copy Grafana .deb to target
+  ansible.builtin.copy:
+    src: "/tmp/grafana_12.3.0_amd64.deb"
+    dest: "/tmp/grafana_12.3.0_amd64.deb"
+    mode: '0644'
+
+- name: Install Grafana from .deb
+  ansible.builtin.apt:
+    deb: "/tmp/grafana_12.3.0_amd64.deb"
+    state: present
+
+- name: Create Provisioning Directory
+  ansible.builtin.file:
+    path: /etc/grafana/provisioning/datasources
+    state: directory
+    mode: '0755'
+
+- name: Configure Prometheus Datasource
+  ansible.builtin.copy:
+    dest: /etc/grafana/provisioning/datasources/prometheus.yaml
+    content: |
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          access: proxy
+          url: http://localhost:9090
+          isDefault: true
+    mode: '0644'
+  notify: restart grafana
+
+- name: Enable and start Grafana
+  ansible.builtin.systemd:
+    name: grafana-server
+    state: started
+    enabled: true
+    daemon_reload: true
+# </mmkolpakov_changes_dz_2>

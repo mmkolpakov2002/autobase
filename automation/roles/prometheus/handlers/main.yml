@@ -1,0 +1,13 @@
+# <mmkolpakov_changes_dz_2>
+---
+- name: restart prometheus
+  ansible.builtin.systemd:
+    name: prometheus
+    state: restarted
+    daemon_reload: true
+
+- name: reload prometheus
+  ansible.builtin.systemd:
+    name: prometheus
+    state: reloaded
+# </mmkolpakov_changes_dz_2>

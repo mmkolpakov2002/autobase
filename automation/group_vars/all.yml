@@ -32,10 +32,28 @@ log:
   level: INFO
 
 host_type: "hostssl"
+# <mmkolpakov_changes_dz_2>
+swap_file_create: false
+monitoring_user: "postgres_exporter"
+monitoring_password: "MonitoringPassword789!"
+
+postgresql_users:
+  - { name: "{{ pgbouncer_auth_username }}", password: "{{ pgbouncer_auth_password }}", flags: "LOGIN", role: "" }
+  - { name: "{{ monitoring_user }}", password: "{{ monitoring_password }}", flags: "LOGIN", role: "pg_monitor" }
+
+prometheus_version: "3.8.0"
+node_exporter_version: "1.10.2"
+postgres_exporter_version: "0.18.1"
+blackbox_exporter_version: "0.27.0"
+# </mmkolpakov_changes_dz_2>
+
 postgresql_pg_hba:
   - { type: "local", database: "all", user: "all", address: "", method: "trust" }
   - { type: "local", database: "all", user: "{{ patroni_superuser_username }}", address: "", method: "trust" }
   - { type: "local", database: "all", user: "{{ pgbouncer_auth_username }}", address: "", method: "trust" } # для pgbouncer
+  # <mmkolpakov_changes_dz_2>
+  - { type: "host", database: "postgres", user: "{{ monitoring_user }}", address: "192.168.0.0/16", method: "scram-sha-256" }
+  # </mmkolpakov_changes_dz_2>
   - { type: "host", database: "all", user: "all", address: "127.0.0.1/32", method: "{{ postgresql_password_encryption_algorithm }}" }
   - { type: "host", database: "all", user: "all", address: "::1/128", method: "{{ postgresql_password_encryption_algorithm }}" }
   - { type: "{{ host_type }}", database: "all", user: "all", address: "0.0.0.0/0", method: "{{ postgresql_password_encryption_algorithm }}" }
