@@ -46,9 +46,10 @@ scrape_configs:
         regex: '([^:]+):\d+'
         target_label: instance
 
-  # 4. Patroni (FIXED HTTPS)
+  # 4. Patroni (Metrics)
   - job_name: 'patroni'
     scheme: https
+    metrics_path: /metrics
     tls_config:
       insecure_skip_verify: true
     static_configs:
@@ -69,6 +70,17 @@ scrape_configs:
 {% for host in groups['etcd_cluster'] %}
 {% if hostvars[host]['bind_address'] is defined %}
         - '{{ hostvars[host]['bind_address'] }}:2379'
+{% endif %}
+{% endfor %}
+
+# 7. HAProxy
+  - job_name: 'haproxy'
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+{% for host in groups['balancers'] %}
+{% if hostvars[host]['bind_address'] is defined %}
+        - '{{ hostvars[host]['bind_address'] }}:7000'
 {% endif %}
 {% endfor %}
 

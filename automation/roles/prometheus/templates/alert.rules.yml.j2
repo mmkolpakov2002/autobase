@@ -5,21 +5,21 @@ groups:
     rules:
       # 1. High Latency (Latency)
       - alert: HighRequestLatency
-        expr: rate(http_request_duration_seconds_sum[5m]) / rate(http_request_duration_seconds_count[5m]) > 0.5
+        expr: probe_duration_seconds{job="blackbox_api"} > 0.5
         for: 2m
         labels:
           severity: warning
         annotations:
-          summary: "High request latency on {{ $labels.instance }}"
+          summary: "High request latency on {{ $labels.instance }} (Current: {{ $value }}s)"
 
       # 2. High Error Rate (Errors)
       - alert: HighErrorRate
-        expr: rate(http_requests_total{status=~"5.."}[5m]) > 0
-        for: 2m
+        expr: probe_success{job="blackbox_api"} == 0
+        for: 1m
         labels:
           severity: critical
         annotations:
-          summary: "High error rate on {{ $labels.instance }}"
+          summary: "API endpoint is DOWN: {{ $labels.instance }}"
 
       # 3. Saturation (CPU/Disk)
       - alert: HostHighCpuLoad

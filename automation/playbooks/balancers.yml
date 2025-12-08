@@ -1,4 +1,15 @@
 ---
+# <mmkolpakov_changes_dz_2>
+- name: Gather facts from backend nodes (DB & Etcd)
+  hosts: postgres_cluster:etcd_cluster
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Define bind_address dynamically
+      ansible.builtin.include_role:
+        name: vitabaks.autobase.bind_address
+      when: bind_address is not defined
+# </mmkolpakov_changes_dz_2>
 - name: vitabaks.autobase.balancers | Configure HAProxy load balancers
   hosts: balancers
   become: true

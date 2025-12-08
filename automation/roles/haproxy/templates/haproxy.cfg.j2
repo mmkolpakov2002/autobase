@@ -27,7 +27,10 @@ listen stats
     mode http
     bind {{ haproxy_bind_address | default(bind_address, true) }}:{{ haproxy_listen_port.stats }}
     stats enable
-    stats uri /
+    stats uri /stats
+    stats refresh 10s
+    stats admin if LOCALHOST
+    http-request use-service prometheus-exporter if { path /metrics }
 
 listen master
 {% if cluster_vip is defined and cluster_vip | length > 0 %}

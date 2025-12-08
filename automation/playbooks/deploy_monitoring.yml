@@ -18,12 +18,11 @@
   roles:
     - role: postgres_exporter
 
-- name: Deploy Monitoring Server (Prometheus + Alertmanager + Blackbox + Grafana)
+- name: Deploy Monitoring Server (Prometheus + Alertmanager + Blackbox)
   hosts: monitoring_server
   become: true
   roles:
     - role: blackbox_exporter
     - role: alertmanager
     - role: prometheus
-    - role: grafana
 # </mmkolpakov_changes_dz_2>
