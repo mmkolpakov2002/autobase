@@ -1,0 +1,40 @@
+---
+- name: Install dependencies (gnupg, curl)
+  ansible.builtin.package:
+    name:
+      - gnupg
+      - curl
+      - ca-certificates
+    state: present
+
+- name: Add k6 GPG key
+  ansible.builtin.shell: |
+    set -o pipefail
+    gpg -k --keyring /usr/share/keyrings/k6-archive-keyring.gpg k6 || \
+    curl https://dl.k6.io/key.gpg | gpg --dearmor | tee /usr/share/keyrings/k6-archive-keyring.gpg > /dev/null
+  args:
+    creates: /usr/share/keyrings/k6-archive-keyring.gpg
+    executable: /bin/bash
+
+- name: Add k6 repository
+  ansible.builtin.shell: |
+    set -o pipefail
+    echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | tee /etc/apt/sources.list.d/k6.list
+  args:
+    creates: /etc/apt/sources.list.d/k6.list
+    executable: /bin/bash
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+
+- name: Install k6
+  ansible.builtin.apt:
+    name: k6
+    state: present
+
+- name: Create load tests directory
+  ansible.builtin.file:
+    path: /etc/load_tests
+    state: directory
+    mode: '0755'

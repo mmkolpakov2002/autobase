@@ -1,0 +1,15 @@
+---
+- name: Setup Load Generator (k6)
+  hosts: monitoring_server
+  become: true
+  gather_facts: false
+
+  roles:
+    - role: k6
+
+  tasks:
+    - name: Copy load test script to server
+      ansible.builtin.copy:
+        src: ../files/stress_test.js
+        dest: /etc/load_tests/stress_test.js
+        mode: '0644'
