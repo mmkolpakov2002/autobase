@@ -13,3 +13,9 @@
         src: ../files/stress_test.js
         dest: /etc/load_tests/stress_test.js
         mode: '0644'
+
+    - name: Copy advanced load test script
+      ansible.builtin.copy:
+        src: ../files/stress_test_universal.js
+        dest: /etc/load_tests/stress_test_universal.js
+        mode: '0644'
